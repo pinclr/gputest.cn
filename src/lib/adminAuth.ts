@@ -45,9 +45,14 @@ export async function api<T = unknown>(
     headers['Content-Type'] = 'application/json';
   }
 
+  // 当 VITE_API_URL 注入时(dev 走 FC 默认 *.fcapp.run URL)拼到 path 前;
+  // 否则保持相对路径(staging/prod 同域反代)
+  const base = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '');
+  const url = base && path.startsWith('/') ? `${base}${path}` : path;
+
   let resp: Response;
   try {
-    resp = await fetch(path, { ...init, headers });
+    resp = await fetch(url, { ...init, headers });
   } catch (e) {
     return { ok: false, error: (e as Error).message || '网络错误' };
   }

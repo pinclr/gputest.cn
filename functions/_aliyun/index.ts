@@ -60,16 +60,36 @@ function toRequest(event: FCHttpEvent): Request {
 }
 
 /** 把 Web Response 转成 FC 输出 */
-async function fromResponse(resp: Response): Promise<FCHttpResponse> {
+async function fromResponse(resp: Response, requestOrigin: string | null): Promise<FCHttpResponse> {
   const headers: Record<string, string> = {};
   resp.headers.forEach((v, k) => {
     headers[k] = v;
   });
+  Object.assign(headers, corsHeaders(requestOrigin));
   const text = await resp.text();
   return {
     statusCode: resp.status,
     headers,
     body: text,
+  };
+}
+
+/**
+ * CORS 头:dev 走 *.fcapp.run 跨域到 dev{N}.gputest.cn,prod/staging 走同源。
+ * 允许任何 *.gputest.cn 与 localhost(开发);其他来源不带 ACAO,等价于禁止跨域。
+ */
+function corsHeaders(origin: string | null): Record<string, string> {
+  const allowed =
+    origin &&
+    (/^https:\/\/([a-z0-9-]+\.)*gputest\.cn$/.test(origin) ||
+      /^http:\/\/localhost(:\d+)?$/.test(origin));
+  if (!allowed) return {};
+  return {
+    'Access-Control-Allow-Origin': origin!,
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept',
+    'Access-Control-Max-Age': '600',
+    Vary: 'Origin',
   };
 }
 
@@ -131,14 +151,25 @@ export const handler = async (
     CACHE: createMemoryKV(),
   };
 
+  const origin = event.headers['origin'] || event.headers['Origin'] || null;
+
+  // CORS preflight 短路
+  if (event.requestContext.http.method === 'OPTIONS') {
+    return {
+      statusCode: 204,
+      headers: corsHeaders(origin),
+      body: '',
+    };
+  }
+
   try {
     const request = toRequest(event);
     const response = await dispatch(request, env);
-    return await fromResponse(response);
+    return await fromResponse(response, origin);
   } catch (e) {
     return {
       statusCode: 500,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
       body: JSON.stringify({ ok: false, error: (e as Error).message }),
     };
   }
