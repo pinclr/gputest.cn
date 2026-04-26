@@ -146,14 +146,15 @@ jobs:
 
       - name: 同步 dist 到 OSS
         run: |
-          # 1) assets/ 长缓存
-          ossutil cp -r ./dist/assets/ oss://$BUCKET/assets/ \
-            --update --meta 'Cache-Control:public, max-age=31536000, immutable'
-          # 2) index.html 不缓存
+          # 1) assets/ — 让 ossutil 自动探测 Content-Type(JS/CSS/图片各自类型),
+          #    再 set-meta --update 单独加 Cache-Control,不冲掉 Content-Type
+          ossutil cp -r ./dist/assets/ oss://$BUCKET/assets/ --update
+          ossutil set-meta oss://$BUCKET/assets/ 'Cache-Control:public, max-age=31536000, immutable' --update -r -f
+          # 2) index.html — 显式 Content-Type:text/html(否则 --meta 替换会把它清空,浏览器当下载)
           ossutil cp ./dist/index.html oss://$BUCKET/index.html \
-            --meta 'Cache-Control:no-cache, must-revalidate'
+            --meta 'Content-Type:text/html#Cache-Control:no-cache, must-revalidate'
           # 3) 根目录其他单文件(robots / sitemap / favicon 等)— ossutil 1.7 的 exclude 不支持带斜杠,
-          #    所以用 find 逐个上传顶层非 html 文件
+          #    所以用 find 逐个上传顶层非 html 文件,让 ossutil 自动探测 Content-Type
           find ./dist -maxdepth 1 -type f ! -name '*.html' -print0 \
             | xargs -0 -I{} ossutil cp {} oss://$BUCKET/ --update
 
@@ -223,10 +224,10 @@ jobs:
       - name: 同步 dist 到 OSS staging
         run: |
           BUCKET="${{ secrets.ALIYUN_OSS_BUCKET_STAGING }}"
-          ossutil cp -r ./dist/assets/ oss://$BUCKET/assets/ \
-            --update --meta 'Cache-Control:public, max-age=31536000, immutable'
+          ossutil cp -r ./dist/assets/ oss://$BUCKET/assets/ --update
+          ossutil set-meta oss://$BUCKET/assets/ 'Cache-Control:public, max-age=31536000, immutable' --update -r -f
           ossutil cp ./dist/index.html oss://$BUCKET/index.html \
-            --meta 'Cache-Control:no-cache, must-revalidate'
+            --meta 'Content-Type:text/html#Cache-Control:no-cache, must-revalidate'
           find ./dist -maxdepth 1 -type f ! -name '*.html' -print0 \
             | xargs -0 -I{} ossutil cp {} oss://$BUCKET/ --update
 
