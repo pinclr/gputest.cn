@@ -89,14 +89,17 @@ jobs:
         run: |
           RR="dev${PR_NUMBER}"
           TARGET="${BUCKET}.oss-website-${{ env.ALIYUN_REGION }}.aliyuncs.com"
-          EXISTING=$(aliyun alidns DescribeDomainRecords \
-            --DomainName gputest.cn --RRKeyWord "$RR" --SearchMode EXACT \
-            --output cols=RecordId,RR,Value rows=DomainRecords.Record 2>/dev/null \
-            | awk -v rr="$RR" '$2==rr {print $1; exit}')
+          RECORDS=$(aliyun alidns DescribeDomainRecords \
+            --DomainName gputest.cn --RRKeyWord "$RR" --SearchMode EXACT)
+          EXISTING=$(echo "$RECORDS" \
+            | jq -r --arg rr "$RR" '.DomainRecords.Record[]? | select(.RR == $rr and .Type == "CNAME") | .RecordId' \
+            | head -1)
           if [ -n "$EXISTING" ]; then
+            echo "更新已有 DNS 记录 $EXISTING → $TARGET"
             aliyun alidns UpdateDomainRecord \
               --RecordId "$EXISTING" --RR "$RR" --Type CNAME --Value "$TARGET"
           else
+            echo "新增 DNS 记录 $RR.gputest.cn → $TARGET"
             aliyun alidns AddDomainRecord \
               --DomainName gputest.cn --RR "$RR" --Type CNAME --Value "$TARGET"
           fi
