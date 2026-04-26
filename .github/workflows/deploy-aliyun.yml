@@ -106,13 +106,13 @@ jobs:
         run: |
           pnpm tsc -p functions/tsconfig.json --outDir aliyun/dist
           sed "s/\${PR_NUMBER}/${PR_NUMBER}/g" aliyun/fc-dev.yaml > aliyun/fc-dev-rendered.yaml
-          s deploy -y --target aliyun/fc-dev-rendered.yaml 2>&1 | tee /tmp/s-deploy.log
+          s deploy -y -t aliyun/fc-dev-rendered.yaml 2>&1 | tee /tmp/s-deploy.log
 
           # 提取 FC 默认 URL(优先 deploy 日志,回退 s info)
           FC_URL=$(grep -oE 'https://[a-zA-Z0-9.-]+\.fcapp\.run[^[:space:]"]*' /tmp/s-deploy.log | head -1 | sed 's:/$::')
           if [ -z "$FC_URL" ]; then
-            FC_URL=$(s info -y --target aliyun/fc-dev-rendered.yaml -o json 2>/dev/null \
-              | jq -r 'recurse | objects | .urlInternet? // empty' | head -1)
+            S_INFO=$(s info -y -t aliyun/fc-dev-rendered.yaml -o json 2>/dev/null || echo '{}')
+            FC_URL=$(echo "${S_INFO:-{}}" | jq -r 'recurse | objects | .urlInternet? // empty' 2>/dev/null | head -1)
           fi
           if [ -z "$FC_URL" ]; then
             echo "::error::无法从 s deploy 输出 / s info 中提取 FC URL"
@@ -225,7 +225,7 @@ jobs:
             --AccountID ${{ secrets.ALIYUN_ACCOUNT_ID }} \
             -a aliyun-default -f
           pnpm tsc -p functions/tsconfig.json --outDir aliyun/dist
-          s deploy -y --target aliyun/fc-staging.yaml
+          s deploy -y -t aliyun/fc-staging.yaml
 
       - name: 刷新 DCDN
         run: |
@@ -278,7 +278,7 @@ jobs:
         run: |
           set +e
           sed "s/\${PR_NUMBER}/${PR_NUMBER}/g" aliyun/fc-dev.yaml > aliyun/fc-dev-rendered.yaml
-          s remove -y --target aliyun/fc-dev-rendered.yaml
+          s remove -y -t aliyun/fc-dev-rendered.yaml
           true
 
       - name: 清空并删除 OSS bucket
