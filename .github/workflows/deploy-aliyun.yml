@@ -99,40 +99,56 @@ jobs:
           XML
           ossutil website --method put oss://$BUCKET /tmp/website.xml
 
-          # 关闭 BPA + 绑定自定义域名 + 证书,合并到一个 Python 脚本(共用 oss2 安装)
+          # 关闭 Block Public Access(用 oss2 SDK,有现成方法)
           pip install -q oss2
           python3 - <<'PY'
           import os, oss2
-          from oss2.models import BucketCnameInfo, CertInfo, PutBucketCnameRequest
-
-          ak = os.environ['ALIYUN_ACCESS_KEY_ID']
-          sk = os.environ['ALIYUN_ACCESS_KEY_SECRET']
-          region = os.environ['ALIYUN_REGION']
-          bucket_name = os.environ['OSS_BUCKET']
-          domain = os.environ['SITE_DOMAIN']
-          cert_id = os.environ['PINCLR_CERT_ID']
-
-          auth = oss2.Auth(ak, sk)
-          bucket = oss2.Bucket(auth, f"oss-{region}.aliyuncs.com", bucket_name)
-
-          # 1) Block Public Access 关掉
+          auth = oss2.Auth(os.environ['ALIYUN_ACCESS_KEY_ID'], os.environ['ALIYUN_ACCESS_KEY_SECRET'])
+          bucket = oss2.Bucket(auth, f"oss-{os.environ['ALIYUN_REGION']}.aliyuncs.com", os.environ['OSS_BUCKET'])
           bucket.put_bucket_public_access_block(False)
-          print(f"BPA disabled on {bucket_name}")
-
-          # 2) 自定义域名 + 证书绑定(PutCname,带 cert_id)
-          cert = CertInfo(cert_id=cert_id, force=True)
-          cname_info = BucketCnameInfo(domain=domain, certificate=cert)
-          req = PutBucketCnameRequest(cname_info)
-          try:
-              bucket.put_bucket_cname(req)
-              print(f"bound {domain} → {bucket_name} with certId {cert_id}")
-          except oss2.exceptions.OssError as e:
-              # 已绑定 / 同样 cert 等情况 — 跳过非致命错误
-              if 'CnameAlreadyExist' in str(e) or e.status == 409:
-                  print(f"cname {domain} already bound, skipping")
-              else:
-                  raise
+          print(f"BPA disabled on {os.environ['OSS_BUCKET']}")
           PY
+
+          # 绑定自定义域名 + 证书(PutBucketCname,直接调 OSS HTTP API)
+          # oss2 各版本对 cname API 的封装不一致,直接走 curl + V1 签名最稳
+          DATE=$(LC_ALL=C date -u "+%a, %d %b %Y %H:%M:%S GMT")
+          CT="application/xml"
+          RES="/${BUCKET}/?cname&comp=add"
+          STR2SIGN=$(printf "PUT\n\n%s\n%s\n%s" "$CT" "$DATE" "$RES")
+          SIG=$(printf '%s' "$STR2SIGN" | openssl dgst -sha1 -hmac "$ALIYUN_ACCESS_KEY_SECRET" -binary | base64)
+
+          cat > /tmp/cname.xml <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <BucketCnameConfiguration>
+            <Cname>
+              <Domain>${SITE_DOMAIN}</Domain>
+              <CertificateConfiguration>
+                <CertId>${PINCLR_CERT_ID}</CertId>
+                <Force>true</Force>
+              </CertificateConfiguration>
+            </Cname>
+          </BucketCnameConfiguration>
+          EOF
+
+          HTTP_CODE=$(curl -sS -o /tmp/cname-resp.xml -w "%{http_code}" -X PUT \
+            "https://${BUCKET}.oss-${ALIYUN_REGION}.aliyuncs.com/?cname&comp=add" \
+            -H "Date: ${DATE}" \
+            -H "Content-Type: ${CT}" \
+            -H "Authorization: OSS ${ALIYUN_ACCESS_KEY_ID}:${SIG}" \
+            --data-binary @/tmp/cname.xml)
+
+          echo "PutBucketCname HTTP ${HTTP_CODE}"
+          cat /tmp/cname-resp.xml || true; echo
+          # 200 = 成功;409 / CnameAlreadyExist 表示已绑定,允许;其它 → fail
+          if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "204" ]; then
+            if grep -q 'CnameAlreadyExist\|already' /tmp/cname-resp.xml 2>/dev/null; then
+              echo "cname ${SITE_DOMAIN} 已绑定,跳过"
+            else
+              echo "::error::PutBucketCname failed (HTTP ${HTTP_CODE})"
+              exit 1
+            fi
+          fi
+          echo "bound ${SITE_DOMAIN} → ${BUCKET} with certId ${PINCLR_CERT_ID}"
 
       - name: 添加 dev DNS CNAME(幂等)
         run: |
