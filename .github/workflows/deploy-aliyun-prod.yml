@@ -58,10 +58,11 @@ jobs:
           VITE_PUBLIC_URL: https://gputest.cn
           VITE_COMMIT_SHA: ${{ github.sha }}
 
-      - name: Playwright e2e
-        run: |
-          pnpm exec playwright install --with-deps chromium
-          pnpm test:e2e
+      # E2E 暂时关闭(待 dev 预览通后改用真实 URL 跑)
+      # - name: Playwright e2e
+      #   run: |
+      #     pnpm exec playwright install --with-deps chromium
+      #     pnpm test:e2e
 
       - name: 安装 ossutil
         run: |
