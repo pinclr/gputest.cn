@@ -1,17 +1,19 @@
 # Pulumi · 阿里云基础设施 IaC
 
-声明式管理 GPUTest 核芯三环境(prod / staging / dev)的阿里云资源。
+声明式管理 GPUTest 核芯长期环境(**prod / staging**)的阿里云资源。
 跑 `pulumi up` 即可创建 / 同步 OSS / FC3.0 / DNS。
+
+> **dev 不在 Pulumi 管理范围**:每个 PR 由 `.github/workflows/deploy-aliyun.yml` 命令式创建/销毁专属 bucket、FC service、DNS 记录(`gputest-cn-dev-pr-{N}` / `gputest-fc-dev-pr-{N}` / `dev{N}.gputest.cn`),Pulumi 只管 staging 与 prod 的长期资源,职责正交。
 
 ## 资源覆盖
 
 | 资源 | 说明 |
 |---|---|
-| `alicloud.oss.Bucket` | 静态站点 bucket(每环境一个) |
+| `alicloud.oss.Bucket` | 静态站点 bucket(staging / prod 各一) |
 | `alicloud.fc.V3Function` | FC3.0 函数 + 资源限额 |
 | `alicloud.fc.V3Trigger` | HTTP 触发器(匿名) |
-| `alicloud.fc.CustomDomain` | API 自定义域名(api / api-staging / api-dev) |
-| `alicloud.dns.AlidnsRecord` | 站点 + 别名 + API + 通配(dev) |
+| `alicloud.fc.CustomDomain` | API 自定义域名(api / api-staging) |
+| `alicloud.dns.AlidnsRecord` | 站点 + 别名(prod) + API |
 
 不在 IaC 中(暂手动):
 - ICP 备案(走阿里云控制台流程)
@@ -70,10 +72,9 @@ pulumi login oss://gputest-pulumi-state
 ## 创建 / 切换 stack
 
 ```bash
-# 首次初始化每个环境
+# 首次初始化(只有 prod / staging)
 pulumi stack init prod
 pulumi stack init staging
-pulumi stack init dev
 
 # 切换到目标 stack
 pulumi stack select prod
@@ -96,7 +97,7 @@ pulumi destroy
 
 ## 部署顺序
 
-1. **prod** 与 **staging** 与 **dev** 三个 stack 互不依赖,可独立部署
+1. **prod** 与 **staging** 两个 stack 互不依赖,可独立部署(dev 由 CI 管,不在此处)
 2. 首次跑 `pulumi up prod` 时,FC `CustomDomain` 资源会失败(域名未备案);
    - 解法 A:先 ` --target` 跳过 CustomDomain,等备案下来再补
      ```bash

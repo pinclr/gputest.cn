@@ -37,14 +37,6 @@ export function createSiteBucket(args: OssArgs) {
         maxAgeSeconds: 600,
       },
     ],
-    lifecycleRules: [
-      {
-        id: 'expire-pr-previews-30d',
-        prefix: 'pr-',
-        enabled: args.env === 'dev',
-        expirations: [{ days: 30 }],
-      },
-    ],
   });
 
   return {

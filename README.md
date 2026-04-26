@@ -154,11 +154,11 @@ pnpm test:lighthouse
 
 详见 [`aliyun/README.md`](./aliyun/README.md)。三套独立资源:
 
-| 环境 | OSS bucket | FC3.0 服务 | 域名 |
-|---|---|---|---|
-| **prod** | `gputest-cn-prod` | `gputest-fc-prod` | gputest.cn / www.gputest.cn |
-| **staging** | `gputest-cn-staging` | `gputest-fc-staging` | staging.gputest.cn |
-| **dev** | `gputest-cn-dev` | `gputest-fc-dev` | dev{PR}.gputest.cn |
+| 环境 | OSS bucket | FC3.0 服务 | 域名 | 管理方 |
+|---|---|---|---|---|
+| **prod** | `gputest-cn-prod` | `gputest-fc-prod` | gputest.cn / www.gputest.cn | Pulumi |
+| **staging** | `gputest-cn-staging` | `gputest-fc-staging` | staging.gputest.cn | Pulumi |
+| **dev**(每 PR 独立) | `gputest-cn-dev-pr-{N}` | `gputest-fc-dev-pr-{N}` | dev{N}.gputest.cn | GitHub Actions(PR opened 创建,closed 销毁) |
 
 DNS(AliDNS):
 
@@ -166,28 +166,30 @@ DNS(AliDNS):
 gputest.cn               CNAME → DCDN 生产加速域名
 www.gputest.cn           CNAME → 同上
 staging.gputest.cn       CNAME → DCDN staging 加速域名
-*.gputest.cn(通配)       CNAME → DCDN dev 加速域名
 api.gputest.cn           CNAME → FC3.0 自定义域名(prod)
 api-staging.gputest.cn   CNAME → FC3.0 自定义域名(staging)
-api-dev.gputest.cn       CNAME → FC3.0 自定义域名(dev)
+dev{N}.gputest.cn        CNAME → 该 PR 的 OSS website endpoint(workflow 创建)
+api-dev{N}.gputest.cn    CNAME → 该 PR 的 FC 自定义域名(workflow 创建)
 ```
+
+> dev 走 wildcard 证书 `*.gputest.cn`(在阿里云 SSL 控制台导入,命名为 `gputest-cn-wildcard`),`aliyun/fc-dev.yaml` 模板里引用此 certName。
 
 ### 必需 GitHub Secrets
 
 ```
-ALIYUN_ACCESS_KEY_ID         (RAM 子账号 AK,限定 OSS / FC / DCDN 权限)
+ALIYUN_ACCESS_KEY_ID         (RAM 子账号 AK,限定 OSS / FC / DCDN / AliDNS 权限)
 ALIYUN_ACCESS_KEY_SECRET
 ALIYUN_REGION                (默认 cn-beijing)
-ALIYUN_ACCOUNT_ID            (账号 ID,FC 部署用)
+ALIYUN_ACCOUNT_ID            (阿里云账号 ID,FC 部署用)
 ALIYUN_OSS_BUCKET_PROD       (gputest-cn-prod)
 ALIYUN_OSS_BUCKET_STAGING    (gputest-cn-staging)
-ALIYUN_OSS_BUCKET_DEV        (gputest-cn-dev)
 ALIYUN_FC_SERVICE_PROD       (gputest-fc-prod)
-ALIYUN_FC_SERVICE_STAGING
-ALIYUN_FC_SERVICE_DEV
+ALIYUN_FC_SERVICE_STAGING    (gputest-fc-staging)
 ALIYUN_DCDN_DOMAIN_PROD      (gputest.cn)
 ALIYUN_DCDN_DOMAIN_STAGING   (staging.gputest.cn)
 ```
+
+> dev 资源名是确定性的(`gputest-cn-dev-pr-{N}` / `gputest-fc-dev-pr-{N}`),不需要单独 secret。
 
 ### 必需 GitHub Environment
 

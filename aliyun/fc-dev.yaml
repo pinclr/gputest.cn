@@ -1,20 +1,20 @@
-# Serverless Devs / FC3.0 部署配置(生产环境)
-# 用法:
-#   npm i -g @serverless-devs/s
-#   s deploy --target aliyun/fc-prod.yaml
+# Serverless Devs / FC3.0 部署配置(dev 模板)
+#
+# 这是模板文件 — workflow 在 deploy 前会把 ${PR_NUMBER} 替换成具体 PR 号,
+# 写到 aliyun/fc-dev-rendered.yaml,再 `s deploy --target` 部署。
+# 每个 PR 拥有独立 FC service,PR 关闭时由 workflow 调 `s remove` 销毁。
 #
 # 文档: https://docs.serverless-devs.com/
 
 edition: 3.0.0
-name: gputest-fc-dev
+name: gputest-fc-dev-pr-${PR_NUMBER}
 access: aliyun-default
 
 vars:
   region: cn-beijing
-  serviceName: gputest-fc-dev
+  serviceName: gputest-fc-dev-pr-${PR_NUMBER}
 
 resources:
-  # /api/* 总入口函数(适配 fetch handler)
   api:
     component: fc3
     actions:
@@ -35,7 +35,6 @@ resources:
       instanceConcurrency: 10
       code: ./aliyun/dist
       environmentVariables:
-        # 实际值在 FC 控制台配置(避免在 yaml 里 commit secrets)
         ADMIN_TOKEN: ${env.ADMIN_TOKEN}
         LARK_BOT_WEBHOOK: ${env.LARK_BOT_WEBHOOK}
         WECHAT_APP_ID: ${env.WECHAT_APP_ID}
@@ -50,10 +49,11 @@ resources:
             disableURLInternet: false
             methods: [GET, POST, PUT, DELETE, OPTIONS]
       customDomain:
-        - domainName: api-dev.gputest.cn
+        - domainName: api-dev${PR_NUMBER}.gputest.cn
           protocol: HTTPS
           certConfig:
-            certName: gputest-cn
+            # 需要 *.gputest.cn 的 wildcard 证书,在阿里云 SSL 控制台导入并命名为 gputest-cn-wildcard
+            certName: gputest-cn-wildcard
           routeConfig:
             routes:
               - path: /api/*

@@ -58,19 +58,6 @@ export function createDnsRecords(args: DnsArgs) {
     }),
   );
 
-  // dev 通配:*.gputest.cn → 同站点
-  if (args.env === 'dev') {
-    records.push(
-      new alicloud.dns.AlidnsRecord(`${args.env}-wildcard`, {
-        domainName: args.rootDomain,
-        rr: '*',
-        type: 'CNAME',
-        value: args.siteCnameTarget,
-        ttl: 600,
-      }),
-    );
-  }
-
   return { records };
 }
 

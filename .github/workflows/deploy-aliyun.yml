@@ -1,8 +1,10 @@
-name: Deploy to Aliyun (Staging & Dev Preview)
+name: Deploy to Aliyun (Staging & Per-PR Dev)
 
 # 阿里云 push 式部署:
-#   PR opened/sync   → 部署到 dev{PR_NUMBER}.gputest.cn(OSS dev bucket + FC dev)
-#   push main        → 部署到 staging.gputest.cn(OSS staging bucket + FC staging)
+#   PR opened/sync   → 创建 / 复用 dev{PR_NUMBER}.gputest.cn 全套独立资源
+#                       (bucket gputest-cn-dev-pr-{N} + FC service gputest-fc-dev-pr-{N})
+#   PR closed        → 销毁该 PR 的全部资源(DNS / FC / bucket)
+#   push main        → 部署到 staging.gputest.cn(共享 staging 资源,Pulumi 管的)
 #
 # Prod 部署见 deploy-aliyun-prod.yml(workflow_dispatch + 审核)
 
@@ -16,14 +18,21 @@ concurrency:
   group: deploy-aliyun-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  ALIYUN_REGION: ${{ secrets.ALIYUN_REGION || 'cn-beijing' }}
+
 jobs:
-  build-and-deploy:
-    if: github.event_name == 'push' || github.event.action != 'closed'
+  # ─────────────────────────────────────────────
+  # PR opened / sync / reopened → 部署到 dev{N}.gputest.cn
+  # push main                  → 部署到 staging.gputest.cn
+  # ─────────────────────────────────────────────
+  deploy:
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action != 'closed')
     runs-on: ubuntu-latest
     env:
       ALIYUN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
       ALIYUN_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
-      ALIYUN_REGION: ${{ secrets.ALIYUN_REGION || 'cn-beijing' }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
 
     steps:
       - uses: actions/checkout@v4
@@ -37,30 +46,33 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # 构建前端
-      - name: Build site
-        run: pnpm build
-        env:
-          VITE_ENV: ${{ github.event_name == 'pull_request' && 'dev' || 'staging' }}
-          VITE_PR_NUMBER: ${{ github.event.pull_request.number }}
-          VITE_PUBLIC_URL: ${{ github.event_name == 'pull_request' && format('https://dev{0}.gputest.cn', github.event.pull_request.number) || 'https://staging.gputest.cn' }}
-          VITE_COMMIT_SHA: ${{ github.sha }}
-
-      # 选择目标 bucket
       - name: 选定目标资源
         id: target
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "bucket=${{ secrets.ALIYUN_OSS_BUCKET_DEV }}" >> $GITHUB_OUTPUT
-            echo "fc_service=${{ secrets.ALIYUN_FC_SERVICE_DEV }}" >> $GITHUB_OUTPUT
-            echo "domain=dev${{ github.event.pull_request.number }}.gputest.cn" >> $GITHUB_OUTPUT
-            echo "prefix=pr-${{ github.event.pull_request.number }}/" >> $GITHUB_OUTPUT
+            echo "env_name=dev"                                      >> $GITHUB_OUTPUT
+            echo "bucket=gputest-cn-dev-pr-${PR_NUMBER}"             >> $GITHUB_OUTPUT
+            echo "fc_service=gputest-fc-dev-pr-${PR_NUMBER}"         >> $GITHUB_OUTPUT
+            echo "domain=dev${PR_NUMBER}.gputest.cn"                 >> $GITHUB_OUTPUT
+            echo "api_domain=api-dev${PR_NUMBER}.gputest.cn"         >> $GITHUB_OUTPUT
+            echo "fc_yaml=aliyun/fc-dev-rendered.yaml"               >> $GITHUB_OUTPUT
           else
-            echo "bucket=${{ secrets.ALIYUN_OSS_BUCKET_STAGING }}" >> $GITHUB_OUTPUT
+            echo "env_name=staging"                                  >> $GITHUB_OUTPUT
+            echo "bucket=${{ secrets.ALIYUN_OSS_BUCKET_STAGING }}"   >> $GITHUB_OUTPUT
             echo "fc_service=${{ secrets.ALIYUN_FC_SERVICE_STAGING }}" >> $GITHUB_OUTPUT
-            echo "domain=staging.gputest.cn" >> $GITHUB_OUTPUT
-            echo "prefix=" >> $GITHUB_OUTPUT
+            echo "domain=staging.gputest.cn"                         >> $GITHUB_OUTPUT
+            echo "api_domain=api-staging.gputest.cn"                 >> $GITHUB_OUTPUT
+            echo "fc_yaml=aliyun/fc-staging.yaml"                    >> $GITHUB_OUTPUT
           fi
+
+      - name: 构建前端
+        run: pnpm build
+        env:
+          VITE_ENV: ${{ steps.target.outputs.env_name }}
+          VITE_PR_NUMBER: ${{ env.PR_NUMBER }}
+          VITE_PUBLIC_URL: https://${{ steps.target.outputs.domain }}
+          VITE_API_URL: https://${{ steps.target.outputs.api_domain }}
+          VITE_COMMIT_SHA: ${{ github.sha }}
 
       - name: 安装 ossutil
         run: |
@@ -71,29 +83,49 @@ jobs:
             -k ${{ env.ALIYUN_ACCESS_KEY_SECRET }} \
             -L CH
 
+      - name: 安装 aliyun cli
+        run: |
+          curl -fsSL https://aliyuncli.alicdn.com/aliyun-cli-linux-latest-amd64.tgz -o /tmp/aliyun.tgz
+          tar -xzf /tmp/aliyun.tgz -C /usr/local/bin/
+          aliyun configure set --profile default --mode AK \
+            --region ${{ env.ALIYUN_REGION }} \
+            --access-key-id ${{ env.ALIYUN_ACCESS_KEY_ID }} \
+            --access-key-secret ${{ env.ALIYUN_ACCESS_KEY_SECRET }}
+
+      # ── dev 专属:创建 per-PR bucket(幂等) ─────────────
+      - name: 创建 dev bucket(若不存在)
+        if: github.event_name == 'pull_request'
+        run: |
+          BUCKET="${{ steps.target.outputs.bucket }}"
+          if ossutil ls oss://$BUCKET >/dev/null 2>&1; then
+            echo "bucket $BUCKET already exists, reuse"
+          else
+            ossutil mb oss://$BUCKET --acl public-read --storage-class Standard
+          fi
+          # 静态站托管(幂等覆盖)
+          cat > /tmp/website.xml <<'XML'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <WebsiteConfiguration>
+            <IndexDocument><Suffix>index.html</Suffix></IndexDocument>
+            <ErrorDocument><Key>index.html</Key></ErrorDocument>
+          </WebsiteConfiguration>
+          XML
+          ossutil website --method put oss://$BUCKET /tmp/website.xml
+
       - name: 同步 dist 到 OSS
         run: |
+          BUCKET="${{ steps.target.outputs.bucket }}"
           # 静态资源长缓存
-          ossutil cp -r ./dist/assets/ \
-            oss://${{ steps.target.outputs.bucket }}/${{ steps.target.outputs.prefix }}assets/ \
+          ossutil cp -r ./dist/assets/ oss://$BUCKET/assets/ \
             --update --header 'Cache-Control:public, max-age=31536000, immutable'
           # HTML 不缓存
-          ossutil cp ./dist/index.html \
-            oss://${{ steps.target.outputs.bucket }}/${{ steps.target.outputs.prefix }}index.html \
+          ossutil cp ./dist/index.html oss://$BUCKET/index.html \
             --header 'Cache-Control:no-cache, must-revalidate'
           # robots / sitemap / favicon
-          ossutil cp -r ./dist/ \
-            oss://${{ steps.target.outputs.bucket }}/${{ steps.target.outputs.prefix }} \
+          ossutil cp -r ./dist/ oss://$BUCKET/ \
             --update --exclude '*.html' --exclude 'assets/*'
 
-      # PR 关闭 → 清理 OSS 该前缀
-      - name: 清理 PR 前缀(closed)
-        if: github.event_name == 'pull_request' && github.event.action == 'closed'
-        run: |
-          ossutil rm -rf oss://${{ secrets.ALIYUN_OSS_BUCKET_DEV }}/pr-${{ github.event.pull_request.number }}/
-
       - name: 部署 FC3.0 函数
-        if: github.event.action != 'closed'
         run: |
           npm install -g @serverless-devs/s
           s config add --AccessKeyID ${{ env.ALIYUN_ACCESS_KEY_ID }} \
@@ -102,36 +134,124 @@ jobs:
             -a aliyun-default -f
           # 编译 functions/* 到 aliyun/dist
           pnpm tsc -p functions/tsconfig.json --outDir aliyun/dist
-          # 选 yaml(prod 用单独 workflow)
+          # dev 渲染模板:把 ${PR_NUMBER} 替换成实际 PR 号
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            s deploy --target aliyun/fc-dev.yaml
+            sed "s/\${PR_NUMBER}/${PR_NUMBER}/g" aliyun/fc-dev.yaml > aliyun/fc-dev-rendered.yaml
+          fi
+          s deploy -y --target ${{ steps.target.outputs.fc_yaml }}
+
+      # ── dev 专属:DNS 记录指向新 bucket(幂等) ──────────
+      - name: 配置 dev DNS CNAME
+        if: github.event_name == 'pull_request'
+        run: |
+          RR="dev${PR_NUMBER}"
+          BUCKET="${{ steps.target.outputs.bucket }}"
+          TARGET="${BUCKET}.oss-website-${{ env.ALIYUN_REGION }}.aliyuncs.com"
+
+          # 已存在则更新,不存在则新增
+          EXISTING=$(aliyun alidns DescribeDomainRecords \
+            --DomainName gputest.cn --RRKeyWord "$RR" --SearchMode EXACT \
+            --output cols=RecordId,RR,Value rows=DomainRecords.Record 2>/dev/null \
+            | awk -v rr="$RR" '$2==rr {print $1; exit}')
+
+          if [ -n "$EXISTING" ]; then
+            echo "更新已有 DNS 记录 $EXISTING → $TARGET"
+            aliyun alidns UpdateDomainRecord \
+              --RecordId "$EXISTING" --RR "$RR" --Type CNAME --Value "$TARGET"
           else
-            s deploy --target aliyun/fc-staging.yaml
+            echo "新增 DNS 记录 $RR.gputest.cn → $TARGET"
+            aliyun alidns AddDomainRecord \
+              --DomainName gputest.cn --RR "$RR" --Type CNAME --Value "$TARGET"
           fi
 
-      - name: 刷新 DCDN
+      - name: 刷新 DCDN(staging)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
-          # 用阿里云 CLI 调 DCDN RefreshObjectCaches
-          pip install aliyun-cli
-          aliyun configure set --profile default --region ${{ env.ALIYUN_REGION }} \
-            --access-key-id ${{ env.ALIYUN_ACCESS_KEY_ID }} \
-            --access-key-secret ${{ env.ALIYUN_ACCESS_KEY_SECRET }}
           aliyun dcdn RefreshDcdnObjectCaches \
-            --ObjectPath "https://staging.gputest.cn/index.html\nhttps://staging.gputest.cn/sitemap.xml"
+            --ObjectPath $'https://staging.gputest.cn/index.html\nhttps://staging.gputest.cn/sitemap.xml'
 
       - name: PR Preview comment
-        if: github.event_name == 'pull_request' && github.event.action != 'closed'
+        if: github.event_name == 'pull_request'
         uses: marocchino/sticky-pull-request-comment@v2
         with:
           header: preview-url
           message: |
-            ## 🚀 Preview Deployment(阿里云)
+            ## 🚀 Preview Deployment(阿里云,per-PR 隔离)
 
             | | |
             |---|---|
-            | URL | https://${{ steps.target.outputs.domain }} |
+            | Site | https://${{ steps.target.outputs.domain }} |
+            | API  | https://${{ steps.target.outputs.api_domain }} |
+            | Bucket | `${{ steps.target.outputs.bucket }}` |
+            | FC service | `${{ steps.target.outputs.fc_service }}` |
             | Commit | `${{ github.sha }}` |
             | Robots | `noindex, nofollow` |
 
-            预览环境会在 PR 关闭后自动清理。
+            PR 关闭后会自动销毁这套资源(bucket / FC / DNS)。
+
+  # ─────────────────────────────────────────────
+  # PR closed → 销毁该 PR 的全部 dev 资源
+  # ─────────────────────────────────────────────
+  teardown:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    env:
+      ALIYUN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
+      ALIYUN_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 ossutil + aliyun cli
+        run: |
+          curl -fsSL https://gosspublic.alicdn.com/ossutil/1.7.18/ossutil64 -o /usr/local/bin/ossutil
+          chmod +x /usr/local/bin/ossutil
+          ossutil config -e oss-${{ env.ALIYUN_REGION }}.aliyuncs.com \
+            -i ${{ env.ALIYUN_ACCESS_KEY_ID }} \
+            -k ${{ env.ALIYUN_ACCESS_KEY_SECRET }} \
+            -L CH
+          curl -fsSL https://aliyuncli.alicdn.com/aliyun-cli-linux-latest-amd64.tgz -o /tmp/aliyun.tgz
+          tar -xzf /tmp/aliyun.tgz -C /usr/local/bin/
+          aliyun configure set --profile default --mode AK \
+            --region ${{ env.ALIYUN_REGION }} \
+            --access-key-id ${{ env.ALIYUN_ACCESS_KEY_ID }} \
+            --access-key-secret ${{ env.ALIYUN_ACCESS_KEY_SECRET }}
+
+      - name: 删除 DNS 记录
+        run: |
+          set +e
+          aliyun alidns DeleteSubDomainRecords \
+            --DomainName gputest.cn --RR "dev${PR_NUMBER}" --Type CNAME
+          aliyun alidns DeleteSubDomainRecords \
+            --DomainName gputest.cn --RR "api-dev${PR_NUMBER}" --Type CNAME
+          true
+
+      - name: 删除 FC service
+        run: |
+          set +e
+          npm install -g @serverless-devs/s
+          s config add --AccessKeyID ${{ env.ALIYUN_ACCESS_KEY_ID }} \
+            --AccessKeySecret ${{ env.ALIYUN_ACCESS_KEY_SECRET }} \
+            --AccountID ${{ secrets.ALIYUN_ACCOUNT_ID }} \
+            -a aliyun-default -f
+          sed "s/\${PR_NUMBER}/${PR_NUMBER}/g" aliyun/fc-dev.yaml > aliyun/fc-dev-rendered.yaml
+          s remove -y --target aliyun/fc-dev-rendered.yaml
+          true
+
+      - name: 清空并删除 OSS bucket
+        run: |
+          set +e
+          BUCKET="gputest-cn-dev-pr-${PR_NUMBER}"
+          ossutil rm -r -f oss://$BUCKET
+          ossutil rb -f oss://$BUCKET
+          true
+
+      - name: PR Preview comment(已清理)
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: preview-url
+          message: |
+            ## 🧹 Preview 已清理
+
+            PR 关闭,`gputest-cn-dev-pr-${{ env.PR_NUMBER }}` / `gputest-fc-dev-pr-${{ env.PR_NUMBER }}` / `dev${{ env.PR_NUMBER }}.gputest.cn` 已销毁。
