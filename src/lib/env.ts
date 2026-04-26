@@ -22,9 +22,9 @@ interface EnvInfo {
 function inferFromHostname(): DeployEnv {
   if (typeof window === 'undefined') return 'prod';
   const host = window.location.hostname;
-  if (host === 'staging.gputest.cn') return 'staging';
-  // dev 走 OSS 原生域名: gputest-cn-dev{N}.oss-cn-beijing.aliyuncs.com
-  if (/^gputest-cn-dev\d+\.oss-cn-beijing\.aliyuncs\.com$/.test(host)) return 'dev';
+  // 临时调试期 dev/staging 走 pinclr.com,gputest.cn 备案完后切回(两套都识别)
+  if (host === 'staging.gputest.cn' || host === 'staging.pinclr.com') return 'staging';
+  if (/^dev\d+\.(gputest\.cn|pinclr\.com)$/.test(host)) return 'dev';
   return 'prod';
 }
 
@@ -32,7 +32,7 @@ function inferPrNumber(): number | undefined {
   const buildTimePR = import.meta.env.VITE_PR_NUMBER;
   if (buildTimePR) return Number(buildTimePR);
   if (typeof window === 'undefined') return undefined;
-  const m = window.location.hostname.match(/^gputest-cn-dev(\d+)\.oss-cn-beijing\.aliyuncs\.com$/);
+  const m = window.location.hostname.match(/^dev(\d+)\.(gputest\.cn|pinclr\.com)$/);
   return m ? Number(m[1]) : undefined;
 }
 

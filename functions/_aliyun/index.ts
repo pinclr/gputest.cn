@@ -75,13 +75,14 @@ async function fromResponse(resp: Response, requestOrigin: string | null): Promi
 }
 
 /**
- * CORS 头:dev 走 *.fcapp.run 跨域到 dev{N}.gputest.cn,prod/staging 走同源。
- * 允许任何 *.gputest.cn 与 localhost(开发);其他来源不带 ACAO,等价于禁止跨域。
+ * CORS 头:dev 走 *.fcapp.run 跨域到 dev{N}.{gputest.cn|pinclr.com},prod/staging 走同源。
+ * 允许任何 *.gputest.cn / *.pinclr.com(临时调试期)与 localhost(开发);
+ * 其他来源不带 ACAO,等价于禁止跨域。
  */
 function corsHeaders(origin: string | null): Record<string, string> {
   const allowed =
     origin &&
-    (/^https:\/\/([a-z0-9-]+\.)*gputest\.cn$/.test(origin) ||
+    (/^https?:\/\/([a-z0-9-]+\.)*(gputest\.cn|pinclr\.com)$/.test(origin) ||
       /^http:\/\/localhost(:\d+)?$/.test(origin));
   if (!allowed) return {};
   return {

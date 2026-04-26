@@ -46,10 +46,11 @@ resources:
             disableURLInternet: false
             methods: [GET, POST, PUT, DELETE, OPTIONS]
       customDomain:
-        - domainName: api-staging.gputest.cn
+        - domainName: api-staging.pinclr.com
           protocol: HTTPS
           certConfig:
-            certName: gputest-cn
+            # 临时调试期用 *.pinclr.com 通配证书,gputest.cn 备案后改回 gputest-cn
+            certName: pinclr-com-wildcard
           routeConfig:
             routes:
               - path: /api/*
