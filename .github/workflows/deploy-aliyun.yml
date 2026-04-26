@@ -109,15 +109,30 @@ jobs:
           print(f"BPA disabled on {os.environ['OSS_BUCKET']}")
           PY
 
-          # 绑定自定义域名 + 证书(PutBucketCname,直接调 OSS HTTP API)
-          # oss2 各版本对 cname API 的封装不一致,直接走 curl + V1 签名最稳
-          DATE=$(LC_ALL=C date -u "+%a, %d %b %Y %H:%M:%S GMT")
-          CT="application/xml"
-          RES="/${BUCKET}/?cname&comp=add"
-          STR2SIGN=$(printf "PUT\n\n%s\n%s\n%s" "$CT" "$DATE" "$RES")
-          SIG=$(printf '%s' "$STR2SIGN" | openssl dgst -sha1 -hmac "$ALIYUN_ACCESS_KEY_SECRET" -binary | base64)
+          # 绑定自定义域名 + 证书(PutBucketCname 不幂等,先 GetCname 判断)
+          # oss2 各版本对 cname API 的封装不一致,直接走 curl + OSS V1 签名最稳
 
-          cat > /tmp/cname.xml <<EOF
+          # GET /?cname — 列出当前 bucket 已绑定的所有自定义域名
+          DATE=$(LC_ALL=C date -u "+%a, %d %b %Y %H:%M:%S GMT")
+          RES="/${BUCKET}/?cname"
+          STR2SIGN=$(printf "GET\n\n\n%s\n%s" "$DATE" "$RES")
+          SIG=$(printf '%s' "$STR2SIGN" | openssl dgst -sha1 -hmac "$ALIYUN_ACCESS_KEY_SECRET" -binary | base64)
+          curl -sS -o /tmp/cname-list.xml -X GET \
+            "https://${BUCKET}.oss-${ALIYUN_REGION}.aliyuncs.com/?cname" \
+            -H "Date: ${DATE}" \
+            -H "Authorization: OSS ${ALIYUN_ACCESS_KEY_ID}:${SIG}"
+
+          if grep -q "<Domain>${SITE_DOMAIN}</Domain>" /tmp/cname-list.xml 2>/dev/null; then
+            echo "${SITE_DOMAIN} already bound to ${BUCKET}, skipping PutBucketCname"
+          else
+            # PUT /?cname&comp=add — 绑定
+            DATE=$(LC_ALL=C date -u "+%a, %d %b %Y %H:%M:%S GMT")
+            CT="application/xml"
+            RES="/${BUCKET}/?cname&comp=add"
+            STR2SIGN=$(printf "PUT\n\n%s\n%s\n%s" "$CT" "$DATE" "$RES")
+            SIG=$(printf '%s' "$STR2SIGN" | openssl dgst -sha1 -hmac "$ALIYUN_ACCESS_KEY_SECRET" -binary | base64)
+
+            cat > /tmp/cname.xml <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <BucketCnameConfiguration>
             <Cname>
@@ -130,25 +145,26 @@ jobs:
           </BucketCnameConfiguration>
           EOF
 
-          HTTP_CODE=$(curl -sS -o /tmp/cname-resp.xml -w "%{http_code}" -X PUT \
-            "https://${BUCKET}.oss-${ALIYUN_REGION}.aliyuncs.com/?cname&comp=add" \
-            -H "Date: ${DATE}" \
-            -H "Content-Type: ${CT}" \
-            -H "Authorization: OSS ${ALIYUN_ACCESS_KEY_ID}:${SIG}" \
-            --data-binary @/tmp/cname.xml)
+            HTTP_CODE=$(curl -sS -o /tmp/cname-resp.xml -w "%{http_code}" -X PUT \
+              "https://${BUCKET}.oss-${ALIYUN_REGION}.aliyuncs.com/?cname&comp=add" \
+              -H "Date: ${DATE}" \
+              -H "Content-Type: ${CT}" \
+              -H "Authorization: OSS ${ALIYUN_ACCESS_KEY_ID}:${SIG}" \
+              --data-binary @/tmp/cname.xml)
 
-          echo "PutBucketCname HTTP ${HTTP_CODE}"
-          cat /tmp/cname-resp.xml || true; echo
-          # 200 = 成功;409 / CnameAlreadyExist 表示已绑定,允许;其它 → fail
-          if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "204" ]; then
-            if grep -q 'CnameAlreadyExist\|already' /tmp/cname-resp.xml 2>/dev/null; then
-              echo "cname ${SITE_DOMAIN} 已绑定,跳过"
-            else
-              echo "::error::PutBucketCname failed (HTTP ${HTTP_CODE})"
+            echo "PutBucketCname HTTP ${HTTP_CODE}"
+            cat /tmp/cname-resp.xml || true; echo
+            if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "204" ]; then
+              # BucketAlreadyExists 在 PutCname 上下文 = cname 被别的 bucket 占了
+              if grep -q 'BucketAlreadyExists\|CnameAlreadyExist' /tmp/cname-resp.xml 2>/dev/null; then
+                echo "::error::${SITE_DOMAIN} 已被另一个 bucket 占用 — 去 OSS 控制台找到那个 bucket 解绑(域名管理)"
+              else
+                echo "::error::PutBucketCname failed (HTTP ${HTTP_CODE})"
+              fi
               exit 1
             fi
+            echo "bound ${SITE_DOMAIN} → ${BUCKET} with certId ${PINCLR_CERT_ID}"
           fi
-          echo "bound ${SITE_DOMAIN} → ${BUCKET} with certId ${PINCLR_CERT_ID}"
 
       - name: 添加 dev DNS CNAME(幂等)
         run: |
