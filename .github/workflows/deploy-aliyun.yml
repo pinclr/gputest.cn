@@ -117,15 +117,32 @@ jobs:
           sed "s/\${PR_NUMBER}/${PR_NUMBER}/g" aliyun/fc-dev.yaml > aliyun/fc-dev-rendered.yaml
           s deploy -y -t aliyun/fc-dev-rendered.yaml 2>&1 | tee /tmp/s-deploy.log
 
-          # 提取 FC 默认 URL(优先 deploy 日志,回退 s info)
-          FC_URL=$(grep -oE 'https://[a-zA-Z0-9.-]+\.fcapp\.run[^[:space:]"]*' /tmp/s-deploy.log | head -1 | sed 's:/$::')
+          FUNC_NAME="gputest-fc-dev${PR_NUMBER}"
+
+          # 提取 FC HTTP trigger 默认 URL,按可靠性递增依次尝试
+          # 1) deploy 日志里的 *.fcapp.run
+          FC_URL=$(grep -oE 'https://[a-zA-Z0-9._-]+\.fcapp\.run[^[:space:]"]*' /tmp/s-deploy.log | head -1 | sed 's:/$::')
+
+          # 2) s info -o json
           if [ -z "$FC_URL" ]; then
             S_INFO=$(s info -y -t aliyun/fc-dev-rendered.yaml -o json 2>/dev/null || echo '{}')
-            FC_URL=$(echo "${S_INFO:-{}}" | jq -r 'recurse | objects | .urlInternet? // empty' 2>/dev/null | head -1)
+            FC_URL=$(echo "$S_INFO" | jq -r 'recurse | objects | (.urlInternet? // .UrlInternet? // .url?) // empty' 2>/dev/null | head -1)
           fi
+
+          # 3) 直接调 FC3 OpenAPI(最可靠)
           if [ -z "$FC_URL" ]; then
-            echo "::error::无法从 s deploy 输出 / s info 中提取 FC URL"
+            TRIGGER_INFO=$(aliyun fc3 GetTrigger --functionName "$FUNC_NAME" --triggerName http-trigger 2>/dev/null || echo '{}')
+            FC_URL=$(echo "$TRIGGER_INFO" | jq -r '(.httpTrigger.urlInternet // .HttpTrigger.UrlInternet) // empty' 2>/dev/null | head -1)
+          fi
+
+          if [ -z "$FC_URL" ]; then
+            echo "::error::无法提取 FC URL — 转储所有可用信息以便排查"
+            echo "=== /tmp/s-deploy.log ==="
             cat /tmp/s-deploy.log
+            echo "=== s info ==="
+            s info -y -t aliyun/fc-dev-rendered.yaml 2>&1 || true
+            echo "=== aliyun fc3 GetTrigger ==="
+            aliyun fc3 GetTrigger --functionName "$FUNC_NAME" --triggerName http-trigger 2>&1 || true
             exit 1
           fi
           echo "FC default URL: $FC_URL"
