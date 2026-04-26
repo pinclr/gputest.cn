@@ -1,0 +1,116 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply scroll-smooth;
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-bg text-ink;
+    font-feature-settings:
+      'cv11' 1,
+      'ss01' 1,
+      'tnum' 1;
+  }
+
+  ::selection {
+    @apply bg-accent-amber/30 text-ink;
+  }
+
+  /* 数字与代码统一等宽 */
+  .num,
+  code,
+  pre {
+    @apply font-mono;
+  }
+}
+
+@layer components {
+  .container-x {
+    @apply mx-auto w-full max-w-[1240px] px-6 md:px-8;
+  }
+
+  .surface {
+    @apply rounded-lg border border-border bg-bg-surface;
+  }
+
+  .surface-hover {
+    @apply transition-colors hover:border-border-strong hover:bg-bg-elevated;
+  }
+
+  .badge-tier {
+    @apply inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium;
+  }
+
+  /* Markdown 文章正文样式 */
+  .prose-article {
+    @apply max-w-none text-[15px] leading-7 text-ink;
+  }
+  .prose-article h1 {
+    @apply mb-6 mt-10 text-3xl font-semibold tracking-tight first:mt-0;
+  }
+  .prose-article h2 {
+    @apply mb-4 mt-12 border-b border-border pb-2 text-2xl font-semibold tracking-tight;
+  }
+  .prose-article h3 {
+    @apply mb-3 mt-8 text-xl font-semibold tracking-tight;
+  }
+  .prose-article h4 {
+    @apply mb-2 mt-6 text-base font-semibold;
+  }
+  .prose-article p {
+    @apply my-4 text-ink;
+  }
+  .prose-article a {
+    @apply text-accent-amber underline-offset-4 hover:underline;
+  }
+  .prose-article strong {
+    @apply font-semibold text-ink;
+  }
+  .prose-article em {
+    @apply italic text-ink-muted;
+  }
+  .prose-article ul {
+    @apply my-4 list-disc space-y-1.5 pl-6 marker:text-ink-dim;
+  }
+  .prose-article ol {
+    @apply my-4 list-decimal space-y-1.5 pl-6 marker:text-ink-dim;
+  }
+  .prose-article li {
+    @apply text-ink;
+  }
+  .prose-article blockquote {
+    @apply my-6 border-l-2 border-accent-amber/60 bg-bg-surface/40 px-4 py-3 italic text-ink-muted;
+  }
+  .prose-article hr {
+    @apply my-10 border-border;
+  }
+  .prose-article code {
+    @apply rounded bg-bg-elevated px-1.5 py-0.5 font-mono text-[13px] text-accent-amber;
+  }
+  .prose-article pre {
+    @apply my-6 overflow-x-auto rounded-lg border border-border bg-bg-surface p-4 text-[13px];
+  }
+  .prose-article pre code {
+    @apply bg-transparent p-0 text-ink;
+  }
+  .prose-article table {
+    @apply my-6 block w-full overflow-x-auto border-collapse text-sm;
+  }
+  .prose-article thead {
+    @apply border-b border-border bg-bg-elevated text-left;
+  }
+  .prose-article th {
+    @apply px-3 py-2 font-medium text-ink;
+  }
+  .prose-article td {
+    @apply border-b border-border px-3 py-2 text-ink-muted;
+  }
+  .prose-article img {
+    @apply my-6 rounded-lg border border-border;
+  }
+}

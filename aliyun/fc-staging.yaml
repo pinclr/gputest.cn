@@ -1,0 +1,61 @@
+# Serverless Devs / FC3.0 部署配置(生产环境)
+# 用法:
+#   npm i -g @serverless-devs/s
+#   s deploy --target aliyun/fc-prod.yaml
+#
+# 文档: https://docs.serverless-devs.com/
+
+edition: 3.0.0
+name: gputest-fc-staging
+access: aliyun-default
+
+vars:
+  region: cn-beijing
+  serviceName: gputest-fc-staging
+
+resources:
+  # /api/* 总入口函数(适配 fetch handler)
+  api:
+    component: fc3
+    actions:
+      pre-deploy:
+        - run: pnpm install --frozen-lockfile
+          path: ./
+        - run: pnpm tsc -p functions/tsconfig.json --outDir aliyun/dist
+          path: ./
+    props:
+      region: ${vars.region}
+      functionName: api
+      runtime: nodejs20
+      handler: index.handler
+      timeout: 30
+      memorySize: 256
+      cpu: 0.5
+      diskSize: 512
+      instanceConcurrency: 10
+      code: ./aliyun/dist
+      environmentVariables:
+        # 实际值在 FC 控制台配置(避免在 yaml 里 commit secrets)
+        ADMIN_TOKEN: ${env.ADMIN_TOKEN}
+        LARK_BOT_WEBHOOK: ${env.LARK_BOT_WEBHOOK}
+        WECHAT_APP_ID: ${env.WECHAT_APP_ID}
+        WECHAT_APP_SECRET: ${env.WECHAT_APP_SECRET}
+        WECHAT_TOKEN: ${env.WECHAT_TOKEN}
+        WECHAT_AES_KEY: ${env.WECHAT_AES_KEY}
+      triggers:
+        - triggerName: http-trigger
+          triggerType: http
+          triggerConfig:
+            authType: anonymous
+            disableURLInternet: false
+            methods: [GET, POST, PUT, DELETE, OPTIONS]
+      customDomain:
+        - domainName: api-staging.gputest.cn
+          protocol: HTTPS
+          certConfig:
+            certName: gputest-cn
+          routeConfig:
+            routes:
+              - path: /api/*
+                methods: [GET, POST, PUT, DELETE, OPTIONS]
+                qualifier: LATEST

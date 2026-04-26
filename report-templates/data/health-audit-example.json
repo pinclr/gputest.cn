@@ -1,0 +1,88 @@
+{
+  "report": {
+    "id": "GPUTEST-2026-04-003",
+    "subtitle": "Q2 季度审计 · 标准套餐",
+    "customer": "某算力出租运营方(脱敏)",
+    "date": "2026-04-03",
+    "version": "v1.0"
+  },
+  "score": 87,
+  "previous": 82,
+  "summary": {
+    "verdict": "集群整体健康度 87 / 100,较上季度 +5。识别 6 项隐患(2 红 / 3 黄 / 1 绿),建议优先处置 2 项红色异常。"
+  },
+  "scope": {
+    "cards": 256,
+    "nodes": 32,
+    "vendor": "NVIDIA",
+    "model": "A100 SXM4 80GB",
+    "runtime": "11 个月",
+    "tier": "标准 · 256–512 卡区间",
+    "duration": "5 天"
+  },
+  "categories": [
+    { "name": "硬件健康", "score": 92 },
+    { "name": "性能基线", "score": 85 },
+    { "name": "网络健康", "score": 88 },
+    { "name": "稳定性预测", "score": 81 },
+    { "name": "利用率", "score": 89 }
+  ],
+  "findings": [
+    {
+      "priority": "red",
+      "asset": "节点 N-018 / GPU 4",
+      "issue": "HBM ECC 错误近 30 天 47 次(阈值 10 / 月),且最近 7 天加速,趋势线指向 7 月失效",
+      "action": "立即下架观察,RMA 流程 30 天内完成。"
+    },
+    {
+      "priority": "red",
+      "asset": "节点 N-022",
+      "issue": "PSU 1 输出电压持续抖动 11.85–12.20V,8h 内触发 3 次过压保护事件",
+      "action": "RMA PSU 备件,期间将节点切换到备用 PSU 2 单独供电(降低冗余至 1)。"
+    },
+    {
+      "priority": "yellow",
+      "asset": "节点 N-005 / N-007 / N-014",
+      "issue": "三节点 NCCL 多机吞吐较群均低 6–8%(基线 89.5%,实测 82.1–83.7%)",
+      "action": "排查 IB 链路与 NCCL_IB_HCA 配置一致性;若软件无误,RMA 网卡。"
+    },
+    {
+      "priority": "yellow",
+      "asset": "节点 N-029 / GPU 0",
+      "issue": "持续高温(82C 中位,群均 76C),未触发降频但接近阈值",
+      "action": "机柜散热布局复核;若机房环境无问题,清理风道。"
+    },
+    {
+      "priority": "yellow",
+      "asset": "整集群",
+      "issue": "GPU 平均利用率 56%(行业基线 70%+),存在调度优化空间",
+      "action": "建议将 MIG 切分由 4× MIG-1g.10gb 改为 2× MIG-2g.20gb;提升单租户并发上限。"
+    },
+    {
+      "priority": "green",
+      "asset": "整集群",
+      "issue": "DCGM Exporter 数据采样间隔 30s(推荐 10s),颗粒度偏粗",
+      "action": "下次审计前调整采样,提升告警响应速度;成本可忽略。"
+    }
+  ],
+  "trends": [
+    { "metric": "NCCL all-reduce 32 节点扩展效率", "previous": "85.1%", "current": "89.5%", "delta": "+4.4 pp", "direction": "good", "symbol": "↑" },
+    { "metric": "HBM ECC 月均事件数", "previous": "8", "current": "13", "delta": "+5", "direction": "bad", "symbol": "↑" },
+    { "metric": "GPU 平均利用率", "previous": "52%", "current": "56%", "delta": "+4 pp", "direction": "good", "symbol": "↑" },
+    { "metric": "训练任务失败率", "previous": "1.2%", "current": "0.4%", "delta": "−0.8 pp", "direction": "good", "symbol": "↓" }
+  ],
+  "remediation": [
+    { "action": "下架并 RMA 节点 N-018 / N-022 异常硬件", "impact": "降低集群级训练失败率约 30%", "cost": "高 (RMA + 调度调整)" },
+    { "action": "修复 N-005 / N-007 / N-014 NCCL 性能", "impact": "千卡训练吞吐 +3–4%", "cost": "中" },
+    { "action": "调整机柜散热与 N-029 风道", "impact": "降低 GPU 高温隐患传导风险", "cost": "低" },
+    { "action": "MIG 切分策略优化", "impact": "GPU 利用率从 56% → 70%+,提升出租收入约 25%", "cost": "中 (调度策略调整)" },
+    { "action": "DCGM Exporter 采样间隔由 30s → 10s", "impact": "提升异常事件告警时延 60%", "cost": "低" }
+  ],
+  "tools": [
+    { "name": "DCGM Exporter + Prometheus", "version": "3.3.5 / 2.50", "source": "厂商 + 开源", "purpose": "持续采集 telemetry" },
+    { "name": "NVIDIA DCGM Diag", "version": "3.3.5", "source": "厂商官方", "purpose": "周期性硬件诊断 (Level 2)" },
+    { "name": "nccl-tests", "version": "2.21.5", "source": "厂商官方", "purpose": "多机 NCCL 扩展性能基线" },
+    { "name": "ibdiagnet", "version": "perftest 4.5", "source": "开源", "purpose": "IB 链路误码扫描" },
+    { "name": "GPUTest 健康度评分模型", "version": "0.4", "source": "自研", "purpose": "百分制评分与趋势归档" }
+  ]
+}

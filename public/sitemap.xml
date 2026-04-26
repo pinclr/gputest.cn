@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://gputest.cn/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>
+  <url><loc>https://gputest.cn/self-serve</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://gputest.cn/testing/node</loc><changefreq>monthly</changefreq><priority>0.95</priority></url>
+  <url><loc>https://gputest.cn/testing/cluster</loc><changefreq>monthly</changefreq><priority>0.95</priority></url>
+  <url><loc>https://gputest.cn/testing/network</loc><changefreq>monthly</changefreq><priority>0.95</priority></url>
+  <url><loc>https://gputest.cn/testing/storage</loc><changefreq>monthly</changefreq><priority>0.95</priority></url>
+  <url><loc>https://gputest.cn/testing/platform</loc><changefreq>monthly</changefreq><priority>0.95</priority></url>
+  <url><loc>https://gputest.cn/solutions/acceptance</loc><changefreq>monthly</changefreq><priority>0.85</priority></url>
+  <url><loc>https://gputest.cn/solutions/health-audit</loc><changefreq>monthly</changefreq><priority>0.85</priority></url>
+  <url><loc>https://gputest.cn/solutions/model-quality</loc><changefreq>monthly</changefreq><priority>0.85</priority></url>
+  <url><loc>https://gputest.cn/solutions/single-node</loc><changefreq>monthly</changefreq><priority>0.85</priority></url>
+  <url><loc>https://gputest.cn/solutions/network-testing</loc><changefreq>monthly</changefreq><priority>0.85</priority></url>
+  <url><loc>https://gputest.cn/solutions/storage-testing</loc><changefreq>monthly</changefreq><priority>0.85</priority></url>
+  <url><loc>https://gputest.cn/solutions/security-testing</loc><changefreq>monthly</changefreq><priority>0.85</priority></url>
+  <url><loc>https://gputest.cn/solutions/domestic-gpu</loc><changefreq>monthly</changefreq><priority>0.85</priority></url>
+  <url><loc>https://gputest.cn/methodology</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://gputest.cn/cases</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://gputest.cn/published</loc><changefreq>weekly</changefreq><priority>0.85</priority></url>
+  <url><loc>https://gputest.cn/articles</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://gputest.cn/resources</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://gputest.cn/about</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://gputest.cn/contact</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+</urlset>

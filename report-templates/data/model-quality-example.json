@@ -1,0 +1,75 @@
+{
+  "report": {
+    "id": "GPUTEST-2026-04-006",
+    "subtitle": "Qwen2-72B 在昇腾 910B 上的迁移评估",
+    "customer": "某金融机构 AI 平台(脱敏)",
+    "date": "2026-04-15",
+    "version": "v1.0"
+  },
+  "model": "Qwen2-72B-Chat",
+  "reference": "NVIDIA H100 FP32",
+  "target": "昇腾 910B",
+  "precisionVariants": ["FP16", "FP8", "INT8", "INT4"],
+  "summary": {
+    "passed": true,
+    "verdict": "目标硬件输出与 H100 参考语义余弦 0.997,MMLU Δ −0.3,达到合同迁移阈值。建议采用 FP16 / INT8 量化方案。"
+  },
+  "benchmarks": [
+    { "name": "MMLU (5-shot)", "reference": 76.2, "target": 75.9 },
+    { "name": "CMMLU (5-shot)", "reference": 81.4, "target": 81.0 },
+    { "name": "CEval (5-shot)", "reference": 80.7, "target": 80.5 },
+    { "name": "GSM8K (8-shot)", "reference": 91.5, "target": 91.0 },
+    { "name": "HumanEval (pass@1)", "reference": 67.4, "target": 66.8 },
+    { "name": "MMBench (v1.1)", "reference": 78.9, "target": 78.4 }
+  ],
+  "quantization": [
+    { "name": "FP16", "score": 76.0, "delta": 0.2 },
+    { "name": "FP8", "score": 75.7, "delta": 0.5 },
+    { "name": "INT8", "score": 75.1, "delta": 1.1 },
+    { "name": "INT4", "score": 73.4, "delta": 2.8 }
+  ],
+  "quantization-summary": "FP16 与 FP8 量化退化 < 1 分,可直接生产使用。INT8 退化 1.1 分,适合大规模推理服务(吞吐优先)。INT4 退化 2.8 分,不建议用于高质量场景。",
+  "diff": {
+    "promptCount": 12000,
+    "source": "客户提供风控场景 prompt",
+    "cosine": "0.997",
+    "bleu": "92.4",
+    "l2": "0.012",
+    "lengthDeviation": "1.8%",
+    "verdict": "12k 条业务 prompt 中,98.4% 输出与 H100 参考几乎一致(余弦 ≥ 0.99)。Δ 主要集中在长尾问答与数学题,均在可接受范围。"
+  },
+  "longContext": {
+    "niah_pass": "100%",
+    "ruler_score": "89.2",
+    "verdict": "在 4k–32k 全段长度均通过 NIAH 测试。RULER 综合分 89.2,与 H100 参考(89.5)基本一致。",
+    "heatmap": [
+      { "depth": "0%",  "cells": ["1.00", "1.00", "1.00", "1.00", "1.00", "1.00"] },
+      { "depth": "20%", "cells": ["1.00", "1.00", "1.00", "1.00", "0.98", "0.96"] },
+      { "depth": "40%", "cells": ["1.00", "1.00", "1.00", "0.99", "0.96", "0.92"] },
+      { "depth": "60%", "cells": ["1.00", "1.00", "0.99", "0.97", "0.94", "0.90"] },
+      { "depth": "80%", "cells": ["1.00", "1.00", "0.98", "0.96", "0.92", "0.88"] },
+      { "depth": "100%","cells": ["1.00", "1.00", "0.97", "0.95", "0.90", "0.85"] }
+    ]
+  },
+  "conclusions": {
+    "passed": [
+      "标准 benchmark 全部 6 项通过,Δ 中位 −0.3",
+      "12k 条业务 prompt diff 语义余弦 0.997,达标",
+      "FP16 / FP8 量化方案在 MMLU 上退化 < 1 分,可上生产",
+      "长上下文 NIAH 4k–32k 全段通过"
+    ],
+    "improvements": [
+      "INT4 量化在 MMLU 退化 2.8 分,不建议用于高质量场景",
+      "32k 长度下 100% depth 通过率为 0.85,接近阈值,建议监控"
+    ],
+    "migration": "迁移评估通过。推荐生产部署使用 FP16 + 选用 INT8 用于高吞吐推理服务。客户业务 prompt 在目标硬件上输出与 H100 参考保持高一致性,符合合同迁移条款。"
+  },
+  "tools": [
+    { "name": "lm-eval-harness", "version": "0.4.4", "source": "开源", "purpose": "标准 benchmark 套件" },
+    { "name": "OpenCompass", "version": "0.2.6", "source": "开源", "purpose": "中文 / 多模态评测" },
+    { "name": "GPUTest diff harness", "version": "0.3", "source": "自研", "purpose": "12k prompt 输出对比 + 余弦 / BLEU / L2" },
+    { "name": "RULER", "version": "1.0", "source": "开源", "purpose": "长上下文质量综合评估" },
+    { "name": "NeedleInAHaystack", "version": "1.5", "source": "开源", "purpose": "NIAH 长上下文回忆测试" },
+    { "name": "Ascend CANN + MindIE", "version": "8.0.RC2", "source": "厂商官方", "purpose": "昇腾 910B 推理引擎" }
+  ]
+}

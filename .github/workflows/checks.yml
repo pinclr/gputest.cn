@@ -1,0 +1,90 @@
+name: Checks
+
+# 质量检查 workflow:typecheck / lint / build / e2e / lighthouse / 死链 / bundle 守门
+#
+# 部署由 deploy-aliyun.yml(staging + dev preview)与 deploy-aliyun-prod.yml(prod 审核)负责。
+# 本 workflow 只跑质量检查:
+#   - PR opened/sync   → 检查通过 = PR 可合并;deploy-aliyun.yml 推送到 dev preview
+#   - push main        → 检查通过 = deploy-aliyun.yml 推送到 staging.gputest.cn
+#
+# Prod 部署由 deploy-prod.yml 单独触发(workflow_dispatch + 审核 gate)。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.7.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint || true
+
+      - name: Build
+        run: pnpm build
+        env:
+          VITE_ENV: ${{ github.event_name == 'pull_request' && 'dev' || 'staging' }}
+          VITE_PR_NUMBER: ${{ github.event.pull_request.number }}
+          VITE_COMMIT_SHA: ${{ github.sha }}
+
+      - name: Bundle 体积守门
+        run: |
+          MAIN_FILE=$(ls dist/assets/index-*.js 2>/dev/null | head -1)
+          [ -z "$MAIN_FILE" ] && { echo "::error::no main bundle"; exit 1; }
+          MAIN_SIZE=$(stat -c %s "$MAIN_FILE" 2>/dev/null || stat -f %z "$MAIN_FILE")
+          MAX=600000
+          echo "Main bundle: ${MAIN_SIZE} bytes (limit ${MAX})"
+          if [ "${MAIN_SIZE}" -gt "${MAX}" ]; then
+            echo "::error::bundle exceeds ${MAX}"
+            exit 1
+          fi
+
+      - name: Install Playwright
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: E2E tests
+        run: pnpm test:e2e
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ github.run_id }}
+          path: playwright-report/
+          retention-days: 7
+
+      - name: Lighthouse CI(仅 main push)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: pnpm test:lighthouse
+        continue-on-error: true
+
+      - name: 死链扫描(仅 main push)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          pnpm preview --host 127.0.0.1 --port 4173 &
+          PREVIEW_PID=$!
+          sleep 5
+          pnpm test:links || true
+          kill $PREVIEW_PID || true

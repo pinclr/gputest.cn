@@ -1,0 +1,12 @@
+config:
+  aliyun:region: cn-beijing
+  gputest-infra:env: dev
+  gputest-infra:rootDomain: gputest.cn
+  # dev 用通配子域,实际具体子域(dev{PR}.gputest.cn)由 deploy workflow 在
+  # OSS 中按 PR 前缀分隔,DNS 通配指向同一 DCDN 加速域名
+  gputest-infra:siteHost: dev.gputest.cn
+  gputest-infra:apiHost: api-dev.gputest.cn
+  gputest-infra:bucketName: gputest-cn-dev
+  gputest-infra:fcServiceName: gputest-fc-dev
+  gputest-infra:fcMemoryMb: "512"
+  gputest-infra:fcTimeoutSec: "30"

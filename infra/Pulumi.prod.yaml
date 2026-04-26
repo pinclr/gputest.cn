@@ -1,0 +1,11 @@
+config:
+  aliyun:region: cn-beijing
+  gputest-infra:env: prod
+  gputest-infra:rootDomain: gputest.cn
+  gputest-infra:siteHost: gputest.cn
+  gputest-infra:siteAlias: www.gputest.cn
+  gputest-infra:apiHost: api.gputest.cn
+  gputest-infra:bucketName: gputest-cn-prod
+  gputest-infra:fcServiceName: gputest-fc-prod
+  gputest-infra:fcMemoryMb: "512"
+  gputest-infra:fcTimeoutSec: "30"

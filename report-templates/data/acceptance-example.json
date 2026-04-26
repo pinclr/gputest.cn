@@ -1,0 +1,88 @@
+{
+  "report": {
+    "id": "GPUTEST-2026-04-008",
+    "subtitle": "1024 卡 H100 集群项目验收",
+    "customer": "某 Top3 智算中心运营方(脱敏)",
+    "date": "2026-04-22",
+    "version": "v1.0"
+  },
+  "summary": {
+    "totalKpi": 14,
+    "passed": 13,
+    "remediated": 1,
+    "failed": 0,
+    "verdict": "14 项合同 KPI 中 13 项一次达标,1 项(NCCL 多机扩展效率)经厂家整改后复测达标。整体满足验收条件,建议签收。"
+  },
+  "scope": {
+    "projectName": "某 Top3 智算中心一期",
+    "cards": 1024,
+    "nodes": 128,
+    "vendor": "NVIDIA",
+    "model": "H100 SXM5 80GB",
+    "network": "InfiniBand NDR400 · Fat-tree 1:1",
+    "duration": "16 天 (2026-04-06 至 2026-04-22)"
+  },
+  "kpi": [
+    { "kpi": "单卡 FP16 算力 (TFLOPS)", "required": "≥ 950", "measured": "973 (中位)", "status": "pass" },
+    { "kpi": "HBM 带宽 (GB/s)", "required": "≥ 3200", "measured": "3287 (中位)", "status": "pass" },
+    { "kpi": "PCIe Gen5 实测 (GB/s)", "required": "≥ 50", "measured": "53.2", "status": "pass" },
+    { "kpi": "NVLink 对称性偏差", "required": "< 5%", "measured": "2.8%", "status": "pass" },
+    { "kpi": "168h soak 训练任务 NaN 中断", "required": "0 次", "measured": "0 次", "status": "pass" },
+    { "kpi": "168h soak XID 事件总数", "required": "≤ 5", "measured": "3", "status": "pass" },
+    { "kpi": "IB 链路误码率 (BER)", "required": "< 1e-12", "measured": "3.2e-14", "status": "pass" },
+    { "kpi": "NCCL all-reduce 8 节点扩展效率", "required": "≥ 92%", "measured": "94.1%", "status": "pass" },
+    { "kpi": "NCCL all-reduce 32 节点扩展效率", "required": "≥ 88%", "measured": "89.3%", "status": "remediated", "statusLabel": "整改后" },
+    { "kpi": "Llama2-70B 千卡训练 step 时间 (ms)", "required": "≤ 4500", "measured": "4280", "status": "pass" },
+    { "kpi": "故障注入 (拔卡) 恢复时间", "required": "≤ 5 min", "measured": "3 min 12 s", "status": "pass" },
+    { "kpi": "MMLU 分数 (Llama2-70B)", "required": "≥ 76.0", "measured": "76.2", "status": "pass" },
+    { "kpi": "多机训练输出语义余弦", "required": "≥ 0.997", "measured": "0.998", "status": "pass" },
+    { "kpi": "RAS 事件 (HBM ECC)", "required": "总计 ≤ 10", "measured": "4", "status": "pass" }
+  ],
+  "stability": {
+    "single": {
+      "ecc": { "status": "pass", "summary": "全部节点 ECC 计数 < 1/天/卡,符合健康指标" },
+      "thermal": { "status": "pass", "summary": "群均 78℃,无降频事件" },
+      "psu": { "status": "pass", "summary": "全部 PSU 输出稳定,无电压抖动告警" }
+    },
+    "cluster": {
+      "workload": "Llama2-70B 千卡训练 + Stable Diffusion 推理混合",
+      "duration": "168 小时 (2026-04-12 至 2026-04-19)",
+      "nan": { "status": "pass", "summary": "0 次 NaN / loss spike 中断" },
+      "xid": { "status": "pass", "summary": "3 次 XID(均为 XID 13,可恢复)" },
+      "flap": { "status": "pass", "summary": "全程无链路 Flap" }
+    }
+  },
+  "performance": {
+    "single": {
+      "fp16": { "nominal": "989", "measured": "973", "status": "pass" },
+      "hbm": { "nominal": "3350", "measured": "3287", "status": "pass" }
+    },
+    "cluster": {
+      "scaling": { "n8": "94.1%", "n16": "92.4%", "n32": "89.3%", "full": "84.6% (128 节点)" },
+      "trainStep": "4280"
+    }
+  },
+  "findings": [
+    {
+      "priority": "yellow",
+      "asset": "节点 N-049 / 50 / 51 / 52(rack-12)",
+      "issue": "32 节点 NCCL 实测扩展效率初次为 84.7%,低于合同要求 88%;定位为该 rack 内 4 节点的 NCCL_IB_HCA 选择不一致",
+      "action": "厂家同步统一 NCCL 环境变量;复测达标 89.3%。"
+    }
+  ],
+  "tools": [
+    { "name": "NVIDIA Field Diag", "version": "v3-2024Q4", "source": "厂商官方", "purpose": "硬件级现场诊断" },
+    { "name": "NVIDIA DCGM Diag", "version": "3.3.5", "source": "厂商官方", "purpose": "数据中心诊断 (Level 3)" },
+    { "name": "gpu-burn", "version": "1.1+gputest", "source": "开源", "purpose": "单机满载压测 8h" },
+    { "name": "cuda_memtest", "version": "1.2.4", "source": "开源", "purpose": "HBM 全 bit 扫描" },
+    { "name": "nccl-tests", "version": "2.21.5", "source": "厂商官方", "purpose": "多机 NCCL 扩展" },
+    { "name": "ib_send_bw / ibdiagnet", "version": "perftest 4.5", "source": "开源", "purpose": "IB 链路误码与带宽" },
+    { "name": "DCGM Exporter + Prometheus", "version": "3.3.5 / 2.50", "source": "厂商 + 开源", "purpose": "168h telemetry" },
+    { "name": "Llama2-70B harness", "version": "Megatron 24.04", "source": "自研", "purpose": "真实负载 soak" },
+    { "name": "lm-eval-harness", "version": "0.4.4", "source": "开源", "purpose": "MMLU 评测" }
+  ],
+  "signoff": {
+    "customerRep": "(客户基础设施负责人)",
+    "vendorRep": "(GPUTest 项目负责人)"
+  }
+}

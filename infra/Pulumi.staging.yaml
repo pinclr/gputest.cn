@@ -1,0 +1,10 @@
+config:
+  aliyun:region: cn-beijing
+  gputest-infra:env: staging
+  gputest-infra:rootDomain: gputest.cn
+  gputest-infra:siteHost: staging.gputest.cn
+  gputest-infra:apiHost: api-staging.gputest.cn
+  gputest-infra:bucketName: gputest-cn-staging
+  gputest-infra:fcServiceName: gputest-fc-staging
+  gputest-infra:fcMemoryMb: "512"
+  gputest-infra:fcTimeoutSec: "30"

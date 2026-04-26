@@ -1,0 +1,23 @@
+{
+  "name": "gputest-infra",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "preview": "pulumi preview",
+    "up": "pulumi up",
+    "destroy": "pulumi destroy",
+    "stack:prod": "pulumi stack select prod",
+    "stack:staging": "pulumi stack select staging",
+    "stack:dev": "pulumi stack select dev"
+  },
+  "dependencies": {
+    "@pulumi/alicloud": "^3.71.0",
+    "@pulumi/pulumi": "^3.140.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "typescript": "^5.6.3"
+  }
+}
