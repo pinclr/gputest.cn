@@ -76,6 +76,8 @@ jobs:
           else
             ossutil mb oss://$BUCKET --acl public-read --storage-class Standard
           fi
+          # 每次都强制 set ACL,避免 mb 阶段 ACL 静默失败 / 历史 bucket 仍是 private
+          ossutil set-acl oss://$BUCKET public-read -b -f
           cat > /tmp/website.xml <<'XML'
           <?xml version="1.0" encoding="UTF-8"?>
           <WebsiteConfiguration>
