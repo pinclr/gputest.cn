@@ -117,32 +117,17 @@ jobs:
           sed "s/\${PR_NUMBER}/${PR_NUMBER}/g" aliyun/fc-dev.yaml > aliyun/fc-dev-rendered.yaml
           s deploy -y -t aliyun/fc-dev-rendered.yaml 2>&1 | tee /tmp/s-deploy.log
 
-          FUNC_NAME="gputest-fc-dev${PR_NUMBER}"
-
-          # 提取 FC HTTP trigger 默认 URL,按可靠性递增依次尝试
-          # 1) deploy 日志里的 *.fcapp.run
-          FC_URL=$(grep -oE 'https://[a-zA-Z0-9._-]+\.fcapp\.run[^[:space:]"]*' /tmp/s-deploy.log | head -1 | sed 's:/$::')
-
-          # 2) s info -o json
-          if [ -z "$FC_URL" ]; then
-            S_INFO=$(s info -y -t aliyun/fc-dev-rendered.yaml -o json 2>/dev/null || echo '{}')
-            FC_URL=$(echo "$S_INFO" | jq -r 'recurse | objects | (.urlInternet? // .UrlInternet? // .url?) // empty' 2>/dev/null | head -1)
-          fi
-
-          # 3) 直接调 FC3 OpenAPI(最可靠)
-          if [ -z "$FC_URL" ]; then
-            TRIGGER_INFO=$(aliyun fc3 GetTrigger --functionName "$FUNC_NAME" --triggerName http-trigger 2>/dev/null || echo '{}')
-            FC_URL=$(echo "$TRIGGER_INFO" | jq -r '(.httpTrigger.urlInternet // .HttpTrigger.UrlInternet) // empty' 2>/dev/null | head -1)
-          fi
+          # `s info` 文本输出里有 url.system_url 与 httpTrigger.urlInternet 两处 *.fcapp.run,
+          # 提取第一个非 vpc 的 *.fcapp.run 即外网 URL
+          S_INFO_TEXT=$(s info -y -t aliyun/fc-dev-rendered.yaml 2>&1 || true)
+          FC_URL=$(echo "$S_INFO_TEXT" \
+            | grep -oE 'https://[a-zA-Z0-9._-]+\.fcapp\.run[^[:space:]"]*' \
+            | grep -v 'vpc' \
+            | head -1 | sed 's:/$::')
 
           if [ -z "$FC_URL" ]; then
-            echo "::error::无法提取 FC URL — 转储所有可用信息以便排查"
-            echo "=== /tmp/s-deploy.log ==="
-            cat /tmp/s-deploy.log
-            echo "=== s info ==="
-            s info -y -t aliyun/fc-dev-rendered.yaml 2>&1 || true
-            echo "=== aliyun fc3 GetTrigger ==="
-            aliyun fc3 GetTrigger --functionName "$FUNC_NAME" --triggerName http-trigger 2>&1 || true
+            echo "::error::无法提取 FC URL — 转储 s info 输出以便排查"
+            echo "$S_INFO_TEXT"
             exit 1
           fi
           echo "FC default URL: $FC_URL"
