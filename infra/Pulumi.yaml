@@ -1,0 +1,7 @@
+name: gputest-infra
+description: GPUTest 核芯 阿里云基础设施(OSS + FC3.0 + DNS)
+runtime:
+  name: nodejs
+  options:
+    packagemanager: pnpm
+# 配置在 Pulumi.<stack>.yaml 中(prod / staging / dev 各一份)

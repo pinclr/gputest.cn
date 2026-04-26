@@ -1,0 +1,83 @@
+{
+  "report": {
+    "id": "GPUTEST-2026-04-009",
+    "subtitle": "进阶套餐 · 12 台到货验收",
+    "customer": "某头部 GPU 服务器经销商(脱敏)",
+    "date": "2026-04-26",
+    "version": "v1.0"
+  },
+  "summary": {
+    "total": 12,
+    "passed": 9,
+    "warned": 2,
+    "failed": 1,
+    "vendor": "NVIDIA",
+    "model": "H100 SXM5 80GB",
+    "duration": "72 小时",
+    "tier": "进阶 (Plus) · 含 24h soak + 模型质量基线",
+    "verdict": "12 台中 9 台一次通过,2 台警告(温度阈值边缘),1 台不达标(GPU 6 持续降频),建议 RMA 后复测。"
+  },
+  "machines": [
+    { "sn": "M-001", "vendor": "NVIDIA", "model": "H100", "cards": 8, "stability": "pass", "performance": "pass", "quality": "pass", "notes": "—" },
+    { "sn": "M-002", "vendor": "NVIDIA", "model": "H100", "cards": 8, "stability": "pass", "performance": "pass", "quality": "pass", "notes": "—" },
+    { "sn": "M-003", "vendor": "NVIDIA", "model": "H100", "cards": 8, "stability": "pass", "performance": "pass", "quality": "pass", "notes": "—" },
+    { "sn": "M-004", "vendor": "NVIDIA", "model": "H100", "cards": 8, "stability": "pass", "performance": "pass", "quality": "pass", "notes": "—" },
+    { "sn": "M-005", "vendor": "NVIDIA", "model": "H100", "cards": 8, "stability": "warn", "performance": "pass", "quality": "pass", "notes": "GPU 3 温度 88C(阈值 85C 边缘)" },
+    { "sn": "M-006", "vendor": "NVIDIA", "model": "H100", "cards": 8, "stability": "pass", "performance": "pass", "quality": "pass", "notes": "—" },
+    { "sn": "M-007", "vendor": "NVIDIA", "model": "H100", "cards": 8, "stability": "fail", "performance": "warn", "quality": "pass", "notes": "GPU 6 在 24h soak 中持续降频" },
+    { "sn": "M-008", "vendor": "NVIDIA", "model": "H100", "cards": 8, "stability": "pass", "performance": "pass", "quality": "pass", "notes": "—" },
+    { "sn": "M-009", "vendor": "NVIDIA", "model": "H100", "cards": 8, "stability": "pass", "performance": "pass", "quality": "pass", "notes": "—" },
+    { "sn": "M-010", "vendor": "NVIDIA", "model": "H100", "cards": 8, "stability": "warn", "performance": "pass", "quality": "pass", "notes": "PSU 1 输出电压抖动(范围内)" },
+    { "sn": "M-011", "vendor": "NVIDIA", "model": "H100", "cards": 8, "stability": "pass", "performance": "pass", "quality": "pass", "notes": "—" },
+    { "sn": "M-012", "vendor": "NVIDIA", "model": "H100", "cards": 8, "stability": "pass", "performance": "pass", "quality": "pass", "notes": "—" }
+  ],
+  "findings": [
+    {
+      "priority": "red",
+      "asset": "M-007 / GPU 6",
+      "issue": "24h soak 中频率从 1980 MHz → 1830 MHz(下降 7.5%),温度 89℃ 高于群均 +12℃",
+      "action": "走 RMA 流程,厂家维修后送测复核(免费)。在客户机房不建议保留。"
+    },
+    {
+      "priority": "yellow",
+      "asset": "M-005 / GPU 3",
+      "issue": "持续 4 小时温度处于 87–88℃ 区间,接近降频阈值(89℃),但未触发降频",
+      "action": "建议客户机房散热布局复核;若机房环境正常可发往,但需在监控中重点关注。"
+    },
+    {
+      "priority": "yellow",
+      "asset": "M-010 / PSU 1",
+      "issue": "PSU 1 输出电压在 11.95–12.10V 抖动(标称 12.00V±5%),仍在合规范围",
+      "action": "建议保留观察 30 天,如趋势恶化再 RMA;暂不影响发货。"
+    }
+  ],
+  "stability": {
+    "ecc": { "status": "pass", "affected": 0 },
+    "thermal": { "status": "warn", "affected": 2 },
+    "psu": { "status": "warn", "affected": 1 },
+    "xid": { "status": "pass", "affected": 0 }
+  },
+  "performance": {
+    "fp16": { "nominal": "989", "median": "973", "status": "pass" },
+    "hbm": { "nominal": "3350", "median": "3287", "status": "pass" },
+    "nvlink": { "deviation": "2.8%", "status": "pass" },
+    "pcie": { "median": "53.2 GB/s", "status": "pass" }
+  },
+  "quality": {
+    "benchmarks": [
+      { "name": "MMLU (5-shot)", "reference": 76.2, "target": 76.0 },
+      { "name": "GSM8K (8-shot)", "reference": 92.5, "target": 92.3 },
+      { "name": "HumanEval (pass@1)", "reference": 67.4, "target": 67.1 }
+    ]
+  },
+  "tools": [
+    { "name": "NVIDIA DCGM Diag", "version": "3.3.5", "source": "厂商官方", "purpose": "数据中心标准诊断 (Level 3)" },
+    { "name": "NVIDIA Field Diag", "version": "v3-2024Q4", "source": "厂商官方", "purpose": "硬件级现场诊断 (RMA 依据)" },
+    { "name": "gpu-burn", "version": "1.1+gputest", "source": "开源", "purpose": "满载温度 / 功耗 / ECC 触发 (8h)" },
+    { "name": "cuda_memtest", "version": "1.2.4", "source": "开源", "purpose": "HBM 全 bit 扫描" },
+    { "name": "nvbandwidth", "version": "v0.7", "source": "厂商官方", "purpose": "PCIe / NVLink 带宽与对称性" },
+    { "name": "nccl-tests (single-node)", "version": "2.21.5", "source": "厂商官方", "purpose": "单机多卡 P2P / All-Reduce" },
+    { "name": "lm-eval-harness", "version": "0.4.4", "source": "开源", "purpose": "MMLU / GSM8K / HumanEval 抽测" },
+    { "name": "GPUTest reporter", "version": "0.1.0", "source": "自研", "purpose": "Typst 报告自动生成" }
+  ]
+}

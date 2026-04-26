@@ -1,0 +1,49 @@
+# Serverless Devs / FC3.0 部署配置(dev 模板)
+#
+# 这是模板文件 — workflow 在 deploy 前会把 ${PR_NUMBER} 替换成具体 PR 号,
+# 写到 aliyun/fc-dev-rendered.yaml,再 `s deploy --target` 部署。
+# 每个 PR 拥有独立 FC service,PR 关闭时由 workflow 调 `s remove` 销毁。
+#
+# 文档: https://docs.serverless-devs.com/
+
+edition: 3.0.0
+name: gputest-fc-dev${PR_NUMBER}
+access: aliyun-default
+
+vars:
+  region: cn-beijing
+  serviceName: gputest-fc-dev${PR_NUMBER}
+
+resources:
+  api:
+    component: fc3
+    actions:
+      pre-deploy:
+        - run: pnpm install --frozen-lockfile
+          path: ./
+        - run: pnpm tsc -p functions/tsconfig.build.json
+          path: ./
+    props:
+      region: ${vars.region}
+      functionName: gputest-fc-dev${PR_NUMBER}
+      runtime: nodejs20
+      handler: _aliyun/index.handler
+      timeout: 30
+      # FC3.0 要求 memory(GB) / cpu(core) ∈ [1, 4]
+      memorySize: 256
+      cpu: 0.25
+      diskSize: 512
+      instanceConcurrency: 10
+      code: ./dist
+      # 环境变量(ADMIN_TOKEN / WECHAT_* / LARK_BOT_WEBHOOK)在 FC 控制台手动配置,
+      # 避免每次 CI 部署用空值覆盖控制台已设的真实值。dev PR 预览大多用不到这些,
+      # 不配也能跑(只有 /admin、/api/wechat、/api/contact 通知功能会失效)。
+      triggers:
+        - triggerName: http-trigger
+          triggerType: http
+          triggerConfig:
+            authType: anonymous
+            disableURLInternet: false
+            methods: [GET, POST, PUT, DELETE, OPTIONS]
+      # dev 不绑自定义域名:前端通过 VITE_API_URL 直接调 FC 默认 *.fcapp.run URL
+      # workflow 在 deploy 后用 `s info` 提取该 URL,再 build 前端时注入

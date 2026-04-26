@@ -1,0 +1,380 @@
+name: Deploy to Aliyun (Staging & Per-PR Dev)
+
+# 阿里云 push 式部署:
+#   PR opened/sync   → 创建 / 复用 per-PR 资源
+#                       站点:bucket gputest-cn-dev{N},自定义域名 dev{N}.pinclr.com (HTTPS)
+#                       API: FC service gputest-fc-dev{N},用 FC 默认 *.fcapp.run URL
+#                       前端通过 VITE_API_URL 跨域调 FC
+#   PR closed        → 销毁 DNS / FC / bucket
+#   push main        → 部署到 staging.pinclr.com(共享 staging 资源,Pulumi 管的)
+#
+# 临时调试期:dev/staging 走 pinclr.com(已备案),prod 仍走 gputest.cn(等备案)。
+# 品牌文案保持 gputest.cn 不变。
+#
+# Prod 部署见 deploy-aliyun-prod.yml(workflow_dispatch + 审核)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+
+concurrency:
+  group: deploy-aliyun-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ALIYUN_REGION: ${{ secrets.ALIYUN_REGION || 'cn-beijing' }}
+  # 临时调试期 dev 走 HTTP-only(*.pinclr.com 通配证书未签发);拿到证书后:
+  # 1. 在 OSS 控制台给该 cname 绑证书,或在下方 PutBucketCname body 加回 CertificateConfiguration
+  # 2. 把 SITE_SCHEME 改成 https
+
+jobs:
+  # ─────────────────────────────────────────────
+  # PR opened / sync / reopened → dev{N}.pinclr.com
+  # ─────────────────────────────────────────────
+  dev:
+    if: github.event_name == 'pull_request' && github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    env:
+      ALIYUN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
+      ALIYUN_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      BUCKET: gputest-cn-dev${{ github.event.pull_request.number }}
+      FC_SERVICE: gputest-fc-dev${{ github.event.pull_request.number }}
+      SITE_DOMAIN: dev${{ github.event.pull_request.number }}.pinclr.com
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.7.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: 安装 ossutil / aliyun cli / serverless devs
+        run: |
+          curl -fsSL https://gosspublic.alicdn.com/ossutil/1.7.18/ossutil64 -o /usr/local/bin/ossutil
+          chmod +x /usr/local/bin/ossutil
+          ossutil config -e oss-${{ env.ALIYUN_REGION }}.aliyuncs.com \
+            -i ${{ env.ALIYUN_ACCESS_KEY_ID }} \
+            -k ${{ env.ALIYUN_ACCESS_KEY_SECRET }} \
+            -L CH
+          curl -fsSL https://aliyuncli.alicdn.com/aliyun-cli-linux-latest-amd64.tgz -o /tmp/aliyun.tgz
+          tar -xzf /tmp/aliyun.tgz -C /usr/local/bin/
+          aliyun configure set --profile default --mode AK \
+            --region ${{ env.ALIYUN_REGION }} \
+            --access-key-id ${{ env.ALIYUN_ACCESS_KEY_ID }} \
+            --access-key-secret ${{ env.ALIYUN_ACCESS_KEY_SECRET }}
+          npm install -g @serverless-devs/s
+          s config add --AccessKeyID ${{ env.ALIYUN_ACCESS_KEY_ID }} \
+            --AccessKeySecret ${{ env.ALIYUN_ACCESS_KEY_SECRET }} \
+            --AccountID ${{ secrets.ALIYUN_ACCOUNT_ID }} \
+            -a aliyun-default -f
+
+      - name: 创建 dev bucket(若不存在)+ 关闭 BPA + 配置静态站 + 绑定自定义域名
+        env:
+          OSS_BUCKET: ${{ env.BUCKET }}
+          SITE_DOMAIN: ${{ env.SITE_DOMAIN }}
+        run: |
+          if ossutil ls oss://$BUCKET >/dev/null 2>&1; then
+            echo "bucket $BUCKET already exists, reuse"
+          else
+            ossutil mb oss://$BUCKET --acl public-read --storage-class Standard
+          fi
+
+          # 强制 set ACL public-read(覆盖历史 bucket 的 private 状态)
+          # 静态站托管(SPA 兜底:404 → index.html)
+          ossutil set-acl oss://$BUCKET public-read -b -f
+          cat > /tmp/website.xml <<'XML'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <WebsiteConfiguration>
+            <IndexDocument><Suffix>index.html</Suffix></IndexDocument>
+            <ErrorDocument><Key>index.html</Key></ErrorDocument>
+          </WebsiteConfiguration>
+          XML
+          ossutil website --method put oss://$BUCKET /tmp/website.xml
+
+          # 关闭 Block Public Access(用 oss2 SDK,有现成方法)
+          pip install -q oss2
+          python3 - <<'PY'
+          import os, oss2
+          auth = oss2.Auth(os.environ['ALIYUN_ACCESS_KEY_ID'], os.environ['ALIYUN_ACCESS_KEY_SECRET'])
+          bucket = oss2.Bucket(auth, f"oss-{os.environ['ALIYUN_REGION']}.aliyuncs.com", os.environ['OSS_BUCKET'])
+          bucket.put_bucket_public_access_block(False)
+          print(f"BPA disabled on {os.environ['OSS_BUCKET']}")
+          PY
+
+          # 绑定自定义域名 + 证书(PutBucketCname 不幂等,先 GetCname 判断)
+          # oss2 各版本对 cname API 的封装不一致,直接走 curl + OSS V1 签名最稳
+
+          # GET /?cname — 列出当前 bucket 已绑定的所有自定义域名
+          DATE=$(LC_ALL=C date -u "+%a, %d %b %Y %H:%M:%S GMT")
+          RES="/${BUCKET}/?cname"
+          STR2SIGN=$(printf "GET\n\n\n%s\n%s" "$DATE" "$RES")
+          SIG=$(printf '%s' "$STR2SIGN" | openssl dgst -sha1 -hmac "$ALIYUN_ACCESS_KEY_SECRET" -binary | base64)
+          curl -sS -o /tmp/cname-list.xml -X GET \
+            "https://${BUCKET}.oss-${ALIYUN_REGION}.aliyuncs.com/?cname" \
+            -H "Date: ${DATE}" \
+            -H "Authorization: OSS ${ALIYUN_ACCESS_KEY_ID}:${SIG}"
+
+          if grep -q "<Domain>${SITE_DOMAIN}</Domain>" /tmp/cname-list.xml 2>/dev/null; then
+            echo "${SITE_DOMAIN} already bound to ${BUCKET}, skipping PutBucketCname"
+          else
+            # PUT /?cname&comp=add — 绑定(HTTP-only,不带证书;拿到 cert 后在 body 里加 CertificateConfiguration)
+            DATE=$(LC_ALL=C date -u "+%a, %d %b %Y %H:%M:%S GMT")
+            CT="application/xml"
+            RES="/${BUCKET}/?cname&comp=add"
+            STR2SIGN=$(printf "PUT\n\n%s\n%s\n%s" "$CT" "$DATE" "$RES")
+            SIG=$(printf '%s' "$STR2SIGN" | openssl dgst -sha1 -hmac "$ALIYUN_ACCESS_KEY_SECRET" -binary | base64)
+
+            cat > /tmp/cname.xml <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <BucketCnameConfiguration>
+            <Cname>
+              <Domain>${SITE_DOMAIN}</Domain>
+            </Cname>
+          </BucketCnameConfiguration>
+          EOF
+
+            HTTP_CODE=$(curl -sS -o /tmp/cname-resp.xml -w "%{http_code}" -X PUT \
+              "https://${BUCKET}.oss-${ALIYUN_REGION}.aliyuncs.com/?cname&comp=add" \
+              -H "Date: ${DATE}" \
+              -H "Content-Type: ${CT}" \
+              -H "Authorization: OSS ${ALIYUN_ACCESS_KEY_ID}:${SIG}" \
+              --data-binary @/tmp/cname.xml)
+
+            echo "PutBucketCname HTTP ${HTTP_CODE}"
+            cat /tmp/cname-resp.xml || true; echo
+            if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "204" ]; then
+              if grep -q 'BucketAlreadyExists\|CnameAlreadyExist' /tmp/cname-resp.xml 2>/dev/null; then
+                echo "::error::${SITE_DOMAIN} 已被另一个 bucket 占用 — 去 OSS 控制台找到那个 bucket 解绑(域名管理)"
+              else
+                echo "::error::PutBucketCname failed (HTTP ${HTTP_CODE})"
+              fi
+              exit 1
+            fi
+            echo "bound ${SITE_DOMAIN} → ${BUCKET} (HTTP-only)"
+          fi
+
+      - name: 添加 dev DNS CNAME(幂等)
+        run: |
+          RR="dev${PR_NUMBER}"
+          TARGET="${BUCKET}.oss-${{ env.ALIYUN_REGION }}.aliyuncs.com"
+          RECORDS=$(aliyun alidns DescribeDomainRecords \
+            --DomainName pinclr.com --RRKeyWord "$RR" --SearchMode EXACT)
+          EXISTING=$(echo "$RECORDS" | jq -r --arg rr "$RR" \
+            '.DomainRecords.Record[]? | select(.RR == $rr and .Type == "CNAME") | "\(.RecordId)\t\(.Value)"' \
+            | head -1)
+          EXISTING_ID=$(echo "$EXISTING" | cut -f1)
+          EXISTING_VALUE=$(echo "$EXISTING" | cut -f2)
+
+          if [ -z "$EXISTING_ID" ]; then
+            echo "新增 DNS 记录 $RR.pinclr.com → $TARGET"
+            aliyun alidns AddDomainRecord \
+              --DomainName pinclr.com --RR "$RR" --Type CNAME --Value "$TARGET"
+          elif [ "$EXISTING_VALUE" = "$TARGET" ]; then
+            echo "DNS 记录已正确指向 $TARGET,跳过"
+          else
+            echo "更新 DNS $EXISTING_ID:$EXISTING_VALUE → $TARGET"
+            aliyun alidns UpdateDomainRecord \
+              --RecordId "$EXISTING_ID" --RR "$RR" --Type CNAME --Value "$TARGET"
+          fi
+
+      - name: 编译 + 部署 FC,提取默认 URL
+        id: fc
+        run: |
+          pnpm tsc -p functions/tsconfig.build.json
+          sed "s/\${PR_NUMBER}/${PR_NUMBER}/g" aliyun/fc-dev.yaml > aliyun/fc-dev-rendered.yaml
+          s deploy -y -t aliyun/fc-dev-rendered.yaml 2>&1 | tee /tmp/s-deploy.log
+
+          S_INFO_TEXT=$(s info -y -t aliyun/fc-dev-rendered.yaml 2>&1 || true)
+          FC_URL=$(echo "$S_INFO_TEXT" \
+            | grep -oE 'https://[a-zA-Z0-9._-]+\.fcapp\.run[^[:space:]"]*' \
+            | grep -v 'vpc' \
+            | head -1 | sed 's:/$::')
+
+          if [ -z "$FC_URL" ]; then
+            echo "::error::无法提取 FC URL — 转储 s info 输出以便排查"
+            echo "$S_INFO_TEXT"
+            exit 1
+          fi
+          echo "FC default URL: $FC_URL"
+          echo "fc_url=$FC_URL" >> $GITHUB_OUTPUT
+
+      - name: 构建前端(注入 FC URL + dev 自定义域名 HTTP)
+        run: pnpm build
+        env:
+          VITE_ENV: dev
+          VITE_PR_NUMBER: ${{ env.PR_NUMBER }}
+          # dev 暂用 HTTP(*.pinclr.com 通配证书未签发)
+          VITE_PUBLIC_URL: http://${{ env.SITE_DOMAIN }}
+          VITE_API_URL: ${{ steps.fc.outputs.fc_url }}
+          VITE_COMMIT_SHA: ${{ github.sha }}
+
+      - name: 同步 dist 到 OSS
+        run: |
+          ossutil cp -r ./dist/assets/ oss://$BUCKET/assets/ --update
+          ossutil set-meta oss://$BUCKET/assets/ 'Cache-Control:public, max-age=31536000, immutable' --update -r -f
+          ossutil cp ./dist/index.html oss://$BUCKET/index.html \
+            --meta 'Content-Type:text/html#Cache-Control:no-cache, must-revalidate'
+          find ./dist -maxdepth 1 -type f ! -name '*.html' -print0 \
+            | xargs -0 -I{} ossutil cp {} oss://$BUCKET/ --update
+
+      - name: PR Preview comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: preview-url
+          message: |
+            ## 🚀 Preview Deployment(阿里云,per-PR 隔离)
+
+            | | |
+            |---|---|
+            | Site | http://${{ env.SITE_DOMAIN }}/ |
+            | API  | ${{ steps.fc.outputs.fc_url }} |
+            | Bucket | `${{ env.BUCKET }}` |
+            | FC service | `${{ env.FC_SERVICE }}` |
+            | Commit | `${{ github.sha }}` |
+            | Robots | `noindex, nofollow` |
+
+            > 临时调试期 dev 走 `*.pinclr.com`(已备案),HTTP-only(证书未签发)。
+            > PR 关闭后会自动销毁 bucket / FC / DNS。
+
+  # ─────────────────────────────────────────────
+  # push main → staging.pinclr.com
+  # ─────────────────────────────────────────────
+  staging:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      ALIYUN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
+      ALIYUN_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.7.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: 构建前端
+        run: pnpm build
+        env:
+          VITE_ENV: staging
+          VITE_PUBLIC_URL: https://staging.pinclr.com
+          VITE_API_URL: https://api-staging.pinclr.com
+          VITE_COMMIT_SHA: ${{ github.sha }}
+
+      - name: 安装 ossutil + aliyun cli
+        run: |
+          curl -fsSL https://gosspublic.alicdn.com/ossutil/1.7.18/ossutil64 -o /usr/local/bin/ossutil
+          chmod +x /usr/local/bin/ossutil
+          ossutil config -e oss-${{ env.ALIYUN_REGION }}.aliyuncs.com \
+            -i ${{ env.ALIYUN_ACCESS_KEY_ID }} \
+            -k ${{ env.ALIYUN_ACCESS_KEY_SECRET }} \
+            -L CH
+          curl -fsSL https://aliyuncli.alicdn.com/aliyun-cli-linux-latest-amd64.tgz -o /tmp/aliyun.tgz
+          tar -xzf /tmp/aliyun.tgz -C /usr/local/bin/
+          aliyun configure set --profile default --mode AK \
+            --region ${{ env.ALIYUN_REGION }} \
+            --access-key-id ${{ env.ALIYUN_ACCESS_KEY_ID }} \
+            --access-key-secret ${{ env.ALIYUN_ACCESS_KEY_SECRET }}
+
+      - name: 同步 dist 到 OSS staging
+        run: |
+          BUCKET="${{ secrets.ALIYUN_OSS_BUCKET_STAGING }}"
+          ossutil cp -r ./dist/assets/ oss://$BUCKET/assets/ --update
+          ossutil set-meta oss://$BUCKET/assets/ 'Cache-Control:public, max-age=31536000, immutable' --update -r -f
+          ossutil cp ./dist/index.html oss://$BUCKET/index.html \
+            --meta 'Content-Type:text/html#Cache-Control:no-cache, must-revalidate'
+          find ./dist -maxdepth 1 -type f ! -name '*.html' -print0 \
+            | xargs -0 -I{} ossutil cp {} oss://$BUCKET/ --update
+
+      - name: 部署 FC3.0 staging
+        run: |
+          npm install -g @serverless-devs/s
+          s config add --AccessKeyID ${{ env.ALIYUN_ACCESS_KEY_ID }} \
+            --AccessKeySecret ${{ env.ALIYUN_ACCESS_KEY_SECRET }} \
+            --AccountID ${{ secrets.ALIYUN_ACCOUNT_ID }} \
+            -a aliyun-default -f
+          pnpm tsc -p functions/tsconfig.build.json
+          s deploy -y -t aliyun/fc-staging.yaml
+
+      - name: 刷新 DCDN
+        run: |
+          aliyun dcdn RefreshDcdnObjectCaches \
+            --ObjectPath $'https://staging.pinclr.com/index.html\nhttps://staging.pinclr.com/sitemap.xml'
+
+  # ─────────────────────────────────────────────
+  # PR closed → 销毁该 PR 的全部 dev 资源
+  # ─────────────────────────────────────────────
+  teardown:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    env:
+      ALIYUN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
+      ALIYUN_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      BUCKET: gputest-cn-dev${{ github.event.pull_request.number }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 ossutil + aliyun cli + s
+        run: |
+          curl -fsSL https://gosspublic.alicdn.com/ossutil/1.7.18/ossutil64 -o /usr/local/bin/ossutil
+          chmod +x /usr/local/bin/ossutil
+          ossutil config -e oss-${{ env.ALIYUN_REGION }}.aliyuncs.com \
+            -i ${{ env.ALIYUN_ACCESS_KEY_ID }} \
+            -k ${{ env.ALIYUN_ACCESS_KEY_SECRET }} \
+            -L CH
+          curl -fsSL https://aliyuncli.alicdn.com/aliyun-cli-linux-latest-amd64.tgz -o /tmp/aliyun.tgz
+          tar -xzf /tmp/aliyun.tgz -C /usr/local/bin/
+          aliyun configure set --profile default --mode AK \
+            --region ${{ env.ALIYUN_REGION }} \
+            --access-key-id ${{ env.ALIYUN_ACCESS_KEY_ID }} \
+            --access-key-secret ${{ env.ALIYUN_ACCESS_KEY_SECRET }}
+          npm install -g @serverless-devs/s
+          s config add --AccessKeyID ${{ env.ALIYUN_ACCESS_KEY_ID }} \
+            --AccessKeySecret ${{ env.ALIYUN_ACCESS_KEY_SECRET }} \
+            --AccountID ${{ secrets.ALIYUN_ACCOUNT_ID }} \
+            -a aliyun-default -f
+
+      - name: 删除 DNS 记录
+        run: |
+          set +e
+          aliyun alidns DeleteSubDomainRecords \
+            --DomainName pinclr.com --RR "dev${PR_NUMBER}" --Type CNAME
+          true
+
+      - name: 删除 FC service
+        run: |
+          set +e
+          sed "s/\${PR_NUMBER}/${PR_NUMBER}/g" aliyun/fc-dev.yaml > aliyun/fc-dev-rendered.yaml
+          s remove -y -t aliyun/fc-dev-rendered.yaml
+          true
+
+      - name: 清空并删除 OSS bucket(自动解绑 cname)
+        run: |
+          set +e
+          ossutil rm -r -f oss://$BUCKET
+          ossutil rb -f oss://$BUCKET
+          true
+
+      - name: PR Preview comment(已清理)
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: preview-url
+          message: |
+            ## 🧹 Preview 已清理
+
+            PR 关闭,`${{ env.BUCKET }}` / `gputest-fc-dev${{ env.PR_NUMBER }}` / `dev${{ env.PR_NUMBER }}.pinclr.com` 已销毁。

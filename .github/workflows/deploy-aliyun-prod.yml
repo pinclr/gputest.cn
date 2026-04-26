@@ -1,0 +1,126 @@
+name: Deploy Aliyun Production
+
+# 阿里云 prod 部署(审核后):
+#   - workflow_dispatch 手动触发
+#   - GitHub Environment "production" 配 required reviewers
+#   - 部署到 OSS prod bucket + FC prod + DCDN 刷新
+#   - 双域名:gputest.cn / www.gputest.cn
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: '部署到 prod 的 git ref(默认 main)'
+        required: false
+        default: main
+      release_note:
+        description: '发版说明'
+        required: false
+        default: ''
+
+concurrency:
+  group: prod-deploy-aliyun
+  cancel-in-progress: false
+
+jobs:
+  prod:
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://gputest.cn
+    env:
+      ALIYUN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
+      ALIYUN_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
+      ALIYUN_REGION: ${{ secrets.ALIYUN_REGION || 'cn-beijing' }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.7.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: 复跑全套检查
+        run: |
+          pnpm typecheck
+          pnpm build
+        env:
+          VITE_ENV: prod
+          VITE_PUBLIC_URL: https://gputest.cn
+          VITE_COMMIT_SHA: ${{ github.sha }}
+
+      # E2E 暂时关闭(待 dev 预览通后改用真实 URL 跑)
+      # - name: Playwright e2e
+      #   run: |
+      #     pnpm exec playwright install --with-deps chromium
+      #     pnpm test:e2e
+
+      - name: 安装 ossutil
+        run: |
+          curl -fsSL https://gosspublic.alicdn.com/ossutil/1.7.18/ossutil64 -o /usr/local/bin/ossutil
+          chmod +x /usr/local/bin/ossutil
+          ossutil config -e oss-${{ env.ALIYUN_REGION }}.aliyuncs.com \
+            -i ${{ env.ALIYUN_ACCESS_KEY_ID }} \
+            -k ${{ env.ALIYUN_ACCESS_KEY_SECRET }} \
+            -L CH
+
+      - name: 同步 dist 到 OSS prod
+        run: |
+          BUCKET="${{ secrets.ALIYUN_OSS_BUCKET_PROD }}"
+          ossutil cp -r ./dist/assets/ oss://$BUCKET/assets/ --update
+          ossutil set-meta oss://$BUCKET/assets/ 'Cache-Control:public, max-age=31536000, immutable' --update -r -f
+          ossutil cp ./dist/index.html oss://$BUCKET/index.html \
+            --meta 'Content-Type:text/html#Cache-Control:no-cache, must-revalidate'
+          find ./dist -maxdepth 1 -type f ! -name '*.html' -print0 \
+            | xargs -0 -I{} ossutil cp {} oss://$BUCKET/ --update
+
+      - name: 部署 FC3.0 prod
+        run: |
+          npm install -g @serverless-devs/s
+          s config add --AccessKeyID ${{ env.ALIYUN_ACCESS_KEY_ID }} \
+            --AccessKeySecret ${{ env.ALIYUN_ACCESS_KEY_SECRET }} \
+            --AccountID ${{ secrets.ALIYUN_ACCOUNT_ID }} \
+            -a aliyun-default -f
+          pnpm tsc -p functions/tsconfig.build.json
+          s deploy -y -t aliyun/fc-prod.yaml
+
+      - name: 刷新 DCDN(双域名)
+        run: |
+          pip install aliyun-cli
+          aliyun configure set --profile default --region ${{ env.ALIYUN_REGION }} \
+            --access-key-id ${{ env.ALIYUN_ACCESS_KEY_ID }} \
+            --access-key-secret ${{ env.ALIYUN_ACCESS_KEY_SECRET }}
+          # 推送式刷新核心 URL
+          aliyun dcdn RefreshDcdnObjectCaches \
+            --ObjectPath $'https://gputest.cn/index.html\nhttps://gputest.cn/sitemap.xml\nhttps://www.gputest.cn/index.html'
+          # 触发 dir 级别预热(可选)
+          aliyun dcdn PreloadDcdnObjectCaches \
+            --ObjectPath "https://gputest.cn/" || true
+
+      - name: 等待 prod 健康
+        run: |
+          sleep 60
+          for i in 1 2 3 4 5; do
+            if curl -fsSL --max-time 10 https://gputest.cn > /dev/null \
+               && curl -fsSL --max-time 10 https://www.gputest.cn > /dev/null; then
+              echo "✅ prod 在线"
+              exit 0
+            fi
+            echo "等待 prod 起来…(${i}/5)"
+            sleep 30
+          done
+          echo "::error::prod 4 分钟未起,检查 OSS / DCDN 配置"
+          exit 1
+
+      - name: 记录发版
+        run: |
+          echo "::notice title=Prod deployed::ref=${{ github.event.inputs.ref }} sha=${{ github.sha }} note=${{ github.event.inputs.release_note }}"
