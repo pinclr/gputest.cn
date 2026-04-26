@@ -91,17 +91,23 @@ jobs:
           TARGET="${BUCKET}.oss-website-${{ env.ALIYUN_REGION }}.aliyuncs.com"
           RECORDS=$(aliyun alidns DescribeDomainRecords \
             --DomainName gputest.cn --RRKeyWord "$RR" --SearchMode EXACT)
-          EXISTING=$(echo "$RECORDS" \
-            | jq -r --arg rr "$RR" '.DomainRecords.Record[]? | select(.RR == $rr and .Type == "CNAME") | .RecordId' \
+          # 拿到现有 CNAME 记录的 (RecordId, Value)
+          EXISTING=$(echo "$RECORDS" | jq -r --arg rr "$RR" \
+            '.DomainRecords.Record[]? | select(.RR == $rr and .Type == "CNAME") | "\(.RecordId)\t\(.Value)"' \
             | head -1)
-          if [ -n "$EXISTING" ]; then
-            echo "更新已有 DNS 记录 $EXISTING → $TARGET"
-            aliyun alidns UpdateDomainRecord \
-              --RecordId "$EXISTING" --RR "$RR" --Type CNAME --Value "$TARGET"
-          else
+          EXISTING_ID=$(echo "$EXISTING" | cut -f1)
+          EXISTING_VALUE=$(echo "$EXISTING" | cut -f2)
+
+          if [ -z "$EXISTING_ID" ]; then
             echo "新增 DNS 记录 $RR.gputest.cn → $TARGET"
             aliyun alidns AddDomainRecord \
               --DomainName gputest.cn --RR "$RR" --Type CNAME --Value "$TARGET"
+          elif [ "$EXISTING_VALUE" = "$TARGET" ]; then
+            echo "DNS 记录已正确指向 $TARGET,跳过"
+          else
+            echo "更新 DNS $EXISTING_ID:$EXISTING_VALUE → $TARGET"
+            aliyun alidns UpdateDomainRecord \
+              --RecordId "$EXISTING_ID" --RR "$RR" --Type CNAME --Value "$TARGET"
           fi
 
       - name: 编译 + 部署 FC,提取默认 URL
