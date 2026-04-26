@@ -158,7 +158,7 @@ pnpm test:lighthouse
 |---|---|---|---|---|---|---|
 | **prod** | `gputest-cn-prod` | `gputest-fc-prod` | gputest.cn / www.gputest.cn | api.gputest.cn(自定义) | DCDN | Pulumi |
 | **staging** | `gputest-cn-staging` | `gputest-fc-staging` | staging.gputest.cn | api-staging.gputest.cn(自定义) | DCDN | Pulumi |
-| **dev**(每 PR 独立) | `gputest-cn-dev-pr-{N}` | `gputest-fc-dev-pr-{N}` | dev{N}.gputest.cn(直连 OSS website) | FC 默认 `*.fcapp.run`(跨域) | 无 DCDN,无证书依赖 | GitHub Actions(PR opened 创建,closed 销毁) |
+| **dev**(每 PR 独立) | `gputest-cn-dev{N}` | `gputest-fc-dev{N}` | dev{N}.gputest.cn(直连 OSS website) | FC 默认 `*.fcapp.run`(跨域) | 无 DCDN,无证书依赖 | GitHub Actions(PR opened 创建,closed 销毁) |
 
 DNS(AliDNS):
 
@@ -188,7 +188,7 @@ ALIYUN_DCDN_DOMAIN_PROD      (gputest.cn)
 ALIYUN_DCDN_DOMAIN_STAGING   (staging.gputest.cn)
 ```
 
-> dev 资源名是确定性的(`gputest-cn-dev-pr-{N}` / `gputest-fc-dev-pr-{N}`),不需要单独 secret。
+> dev 资源名是确定性的(`gputest-cn-dev{N}` / `gputest-fc-dev{N}`),不需要单独 secret。
 
 ### 必需 GitHub Environment
 

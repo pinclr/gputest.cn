@@ -7,12 +7,12 @@
 # 文档: https://docs.serverless-devs.com/
 
 edition: 3.0.0
-name: gputest-fc-dev-pr-${PR_NUMBER}
+name: gputest-fc-dev${PR_NUMBER}
 access: aliyun-default
 
 vars:
   region: cn-beijing
-  serviceName: gputest-fc-dev-pr-${PR_NUMBER}
+  serviceName: gputest-fc-dev${PR_NUMBER}
 
 resources:
   api:
