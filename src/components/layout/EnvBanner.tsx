@@ -59,7 +59,7 @@ export function EnvBanner() {
         <>
           <span className="opacity-60">·</span>
           <a
-            href={`https://github.com/_/_/pull/${info.prNumber}`}
+            href={`https://github.com/pinclr/gputest.cn/pull/${info.prNumber}`}
             target="_blank"
             rel="noreferrer"
             className="inline-flex items-center gap-1 underline-offset-4 hover:underline"
