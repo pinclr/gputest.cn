@@ -34,13 +34,9 @@ resources:
       diskSize: 512
       instanceConcurrency: 10
       code: ./aliyun/dist
-      environmentVariables:
-        ADMIN_TOKEN: ${env.ADMIN_TOKEN}
-        LARK_BOT_WEBHOOK: ${env.LARK_BOT_WEBHOOK}
-        WECHAT_APP_ID: ${env.WECHAT_APP_ID}
-        WECHAT_APP_SECRET: ${env.WECHAT_APP_SECRET}
-        WECHAT_TOKEN: ${env.WECHAT_TOKEN}
-        WECHAT_AES_KEY: ${env.WECHAT_AES_KEY}
+      # 环境变量(ADMIN_TOKEN / WECHAT_* / LARK_BOT_WEBHOOK)在 FC 控制台手动配置,
+      # 避免每次 CI 部署用空值覆盖控制台已设的真实值。dev PR 预览大多用不到这些,
+      # 不配也能跑(只有 /admin、/api/wechat、/api/contact 通知功能会失效)。
       triggers:
         - triggerName: http-trigger
           triggerType: http
