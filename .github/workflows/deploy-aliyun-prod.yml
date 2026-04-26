@@ -89,7 +89,7 @@ jobs:
             --AccessKeySecret ${{ env.ALIYUN_ACCESS_KEY_SECRET }} \
             --AccountID ${{ secrets.ALIYUN_ACCOUNT_ID }} \
             -a aliyun-default -f
-          pnpm tsc -p functions/tsconfig.json --outDir aliyun/dist
+          pnpm tsc -p functions/tsconfig.build.json
           s deploy -y -t aliyun/fc-prod.yaml
 
       - name: 刷新 DCDN(双域名)

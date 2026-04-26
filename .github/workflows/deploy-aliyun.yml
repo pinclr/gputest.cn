@@ -113,7 +113,7 @@ jobs:
       - name: 编译 + 部署 FC,提取默认 URL
         id: fc
         run: |
-          pnpm tsc -p functions/tsconfig.json --outDir aliyun/dist
+          pnpm tsc -p functions/tsconfig.build.json
           sed "s/\${PR_NUMBER}/${PR_NUMBER}/g" aliyun/fc-dev.yaml > aliyun/fc-dev-rendered.yaml
           s deploy -y -t aliyun/fc-dev-rendered.yaml 2>&1 | tee /tmp/s-deploy.log
 
@@ -233,7 +233,7 @@ jobs:
             --AccessKeySecret ${{ env.ALIYUN_ACCESS_KEY_SECRET }} \
             --AccountID ${{ secrets.ALIYUN_ACCOUNT_ID }} \
             -a aliyun-default -f
-          pnpm tsc -p functions/tsconfig.json --outDir aliyun/dist
+          pnpm tsc -p functions/tsconfig.build.json
           s deploy -y -t aliyun/fc-staging.yaml
 
       - name: 刷新 DCDN
