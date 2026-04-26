@@ -3,7 +3,7 @@
 声明式管理 GPUTest 核芯长期环境(**prod / staging**)的阿里云资源。
 跑 `pulumi up` 即可创建 / 同步 OSS / FC3.0 / DNS。
 
-> **dev 不在 Pulumi 管理范围**:每个 PR 由 `.github/workflows/deploy-aliyun.yml` 命令式创建/销毁专属 bucket、FC service、DNS 记录(`gputest-cn-dev{N}` / `gputest-fc-dev{N}` / `dev{N}.gputest.cn`),Pulumi 只管 staging 与 prod 的长期资源,职责正交。
+> **dev 不在 Pulumi 管理范围**:每个 PR 由 `.github/workflows/deploy-aliyun.yml` 命令式创建/销毁专属 bucket(`gputest-cn-dev{N}`)与 FC service(`gputest-fc-dev{N}`)。dev 直接用 OSS 原生 URL 与 FC 默认 `*.fcapp.run` URL,不绑自定义子域,无 DNS / 证书 / DCDN 依赖。Pulumi 只管 staging 与 prod 的长期资源,职责正交。
 
 ## 资源覆盖
 

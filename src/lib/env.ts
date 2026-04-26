@@ -23,7 +23,8 @@ function inferFromHostname(): DeployEnv {
   if (typeof window === 'undefined') return 'prod';
   const host = window.location.hostname;
   if (host === 'staging.gputest.cn') return 'staging';
-  if (/^dev\d+\.gputest\.cn$/.test(host)) return 'dev';
+  // dev 走 OSS 原生域名: gputest-cn-dev{N}.oss-cn-beijing.aliyuncs.com
+  if (/^gputest-cn-dev\d+\.oss-cn-beijing\.aliyuncs\.com$/.test(host)) return 'dev';
   return 'prod';
 }
 
@@ -31,7 +32,7 @@ function inferPrNumber(): number | undefined {
   const buildTimePR = import.meta.env.VITE_PR_NUMBER;
   if (buildTimePR) return Number(buildTimePR);
   if (typeof window === 'undefined') return undefined;
-  const m = window.location.hostname.match(/^dev(\d+)\.gputest\.cn$/);
+  const m = window.location.hostname.match(/^gputest-cn-dev(\d+)\.oss-cn-beijing\.aliyuncs\.com$/);
   return m ? Number(m[1]) : undefined;
 }
 

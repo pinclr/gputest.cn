@@ -154,11 +154,11 @@ pnpm test:lighthouse
 
 详见 [`aliyun/README.md`](./aliyun/README.md)。三套独立资源:
 
-| 环境 | OSS bucket | FC3.0 服务 | 站点域名 | API 域名 | 前端 / DCDN | 管理方 |
+| 环境 | OSS bucket | FC3.0 服务 | 站点 URL | API URL | DCDN | 管理方 |
 |---|---|---|---|---|---|---|
-| **prod** | `gputest-cn-prod` | `gputest-fc-prod` | gputest.cn / www.gputest.cn | api.gputest.cn(自定义) | DCDN | Pulumi |
-| **staging** | `gputest-cn-staging` | `gputest-fc-staging` | staging.gputest.cn | api-staging.gputest.cn(自定义) | DCDN | Pulumi |
-| **dev**(每 PR 独立) | `gputest-cn-dev{N}` | `gputest-fc-dev{N}` | dev{N}.gputest.cn(直连 OSS website) | FC 默认 `*.fcapp.run`(跨域) | 无 DCDN,无证书依赖 | GitHub Actions(PR opened 创建,closed 销毁) |
+| **prod** | `gputest-cn-prod` | `gputest-fc-prod` | gputest.cn / www.gputest.cn | api.gputest.cn(自定义) | ✓ | Pulumi |
+| **staging** | `gputest-cn-staging` | `gputest-fc-staging` | staging.gputest.cn | api-staging.gputest.cn(自定义) | ✓ | Pulumi |
+| **dev**(每 PR 独立) | `gputest-cn-dev{N}` | `gputest-fc-dev{N}` | `https://gputest-cn-dev{N}.oss-cn-beijing.aliyuncs.com/`(OSS 原生域名,自带证书) | FC 默认 `*.fcapp.run`(跨域) | ✗ | GitHub Actions(PR opened 创建,closed 销毁) |
 
 DNS(AliDNS):
 
@@ -168,10 +168,9 @@ www.gputest.cn           CNAME → 同上
 staging.gputest.cn       CNAME → DCDN staging 加速域名
 api.gputest.cn           CNAME → FC3.0 自定义域名(prod)
 api-staging.gputest.cn   CNAME → FC3.0 自定义域名(staging)
-dev{N}.gputest.cn        CNAME → 该 PR 的 OSS website endpoint(workflow 创建/销毁)
 ```
 
-> dev 不绑 API 自定义域名,前端通过 `VITE_API_URL`(workflow 部署 FC 后从 `s deploy` 输出提取)直接调 FC 默认 `*.fcapp.run` URL,跨域请求由 FC handler 的 CORS 头(允许 `*.gputest.cn` 与 localhost)放行。无需 wildcard 证书、无需 DCDN。
+> dev 不绑任何自定义子域、不申请证书、不接 DCDN —— 前端用 OSS 原生 URL,API 用 FC 默认 `*.fcapp.run`。`api()` helper 通过构建期注入的 `VITE_API_URL` 直接调 FC,跨域由 FC handler 的 CORS 头(允许 `*.gputest.cn` 与 localhost)放行。
 
 ### 必需 GitHub Secrets
 
