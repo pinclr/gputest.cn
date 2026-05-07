@@ -72,6 +72,6 @@ test('footer 包含关键合规元素(品晰科技 + 备案位)', async ({ page 
   await page.goto('/');
   const footer = page.locator('footer');
   await expect(footer.getByText(/北京品晰科技/)).toBeVisible();
-  await expect(footer.getByText(/京 ICP 备/)).toBeVisible();
+  await expect(footer.getByText(/京ICP备\d+号-\d+/)).toBeVisible();
   await expect(footer.getByText(/sales@gputest.cn/)).toBeVisible();
 });

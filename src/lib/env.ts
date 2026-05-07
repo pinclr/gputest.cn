@@ -22,9 +22,8 @@ interface EnvInfo {
 function inferFromHostname(): DeployEnv {
   if (typeof window === 'undefined') return 'prod';
   const host = window.location.hostname;
-  // 临时调试期 dev/staging 走 pinclr.com,gputest.cn 备案完后切回(两套都识别)
-  if (host === 'staging.gputest.cn' || host === 'staging.pinclr.com') return 'staging';
-  if (/^dev\d+\.(gputest\.cn|pinclr\.com)$/.test(host)) return 'dev';
+  if (host === 'staging.gputest.cn') return 'staging';
+  if (/^dev\d+\.gputest\.cn$/.test(host)) return 'dev';
   return 'prod';
 }
 
@@ -32,7 +31,7 @@ function inferPrNumber(): number | undefined {
   const buildTimePR = import.meta.env.VITE_PR_NUMBER;
   if (buildTimePR) return Number(buildTimePR);
   if (typeof window === 'undefined') return undefined;
-  const m = window.location.hostname.match(/^dev(\d+)\.(gputest\.cn|pinclr\.com)$/);
+  const m = window.location.hostname.match(/^dev(\d+)\.gputest\.cn$/);
   return m ? Number(m[1]) : undefined;
 }
 

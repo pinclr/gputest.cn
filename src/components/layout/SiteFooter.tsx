@@ -122,7 +122,14 @@ export function SiteFooter() {
         <div className="container-x flex flex-col gap-2 py-6 text-xs text-ink-dim md:flex-row md:items-center md:justify-between">
           <div>© {new Date().getFullYear()} 北京品晰科技有限公司 · GPUTest 核芯</div>
           <div className="flex gap-4">
-            <span>京 ICP 备 XXXXXXXX 号</span>
+            <a
+              href="https://beian.miit.gov.cn/"
+              target="_blank"
+              rel="noreferrer"
+              className="hover:text-ink"
+            >
+              京ICP备2021037485号-6
+            </a>
             <span>gputest.cn</span>
           </div>
         </div>
